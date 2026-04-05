@@ -1,0 +1,133 @@
+/**
+ * Career Catalyst — entry point
+ *
+ * Usage:
+ *   npx ts-node --esm src/main.ts <cv> <target-role> [github-url]
+ *
+ * <cv> can be either:
+ *   • An absolute or relative path to a .pdf file
+ *   • A plain-text string containing the CV content
+ *
+ * Environment variables (all required unless noted):
+ *   ANTHROPIC_API_KEY   — Claude API key
+ *   TAVILY_API_KEY      — Tavily search API key
+ *   GITHUB_TOKEN        — (optional) raises GitHub API rate limit from 60 → 5000 req/hr
+ *
+ * Output:
+ *   Writes the final PDF to ./output/career-catalyst-<timestamp>.pdf
+ *   Prints a structured summary of every pipeline stage to stdout
+ */
+
+import fs from "node:fs/promises";
+import path from "node:path";
+import { graph } from "./graph.js";
+import type { GraphStateType } from "./state.js";
+
+// ─── Env validation ────────────────────────────────────────────────────────────
+
+function requireEnv(name: string): string {
+  const val = process.env[name];
+  if (!val) {
+    console.error(`\n  ERROR: Environment variable ${name} is not set.\n`);
+    process.exit(1);
+  }
+  return val;
+}
+
+requireEnv("ANTHROPIC_API_KEY");
+requireEnv("TAVILY_API_KEY");
+
+if (!process.env.GITHUB_TOKEN) {
+  console.warn(
+    "  WARN: GITHUB_TOKEN not set — GitHub API rate limit is 60 req/hr. " +
+      "Set it to raise the limit to 5000 req/hr.\n"
+  );
+}
+
+// ─── CLI args ──────────────────────────────────────────────────────────────────
+
+const [, , cvInput, targetRole] = process.argv;
+
+if (!cvInput || !targetRole) {
+  console.error(
+    "Usage: ts-node --esm src/main.ts <cv-path-or-text> <target-role> [github-url]\n"
+  );
+  process.exit(1);
+}
+
+// ─── Run ──────────────────────────────────────────────────────────────────────
+
+const threadId = `cc-${Date.now()}`;
+
+console.log("\n" + "═".repeat(64));
+console.log("  Career Catalyst");
+console.log("═".repeat(64));
+console.log(`  Thread  : ${threadId}`);
+console.log(`  Role    : ${targetRole}`);
+console.log(`  CV      : ${cvInput.length > 60 ? cvInput.slice(0, 57) + "..." : cvInput}`);
+console.log("═".repeat(64) + "\n");
+
+const initialState: Partial<GraphStateType> = {
+  originalCv: cvInput,
+  targetRole,
+};
+
+let result: GraphStateType;
+
+try {
+  result = await graph.invoke(initialState, {
+    configurable: { thread_id: threadId },
+  });
+} catch (err) {
+  console.error("\n  FATAL: graph execution failed.");
+  console.error((err as Error).message);
+  process.exit(1);
+}
+
+// ─── Save PDF ─────────────────────────────────────────────────────────────────
+
+if (result.finalPdfBase64) {
+  const outputDir = path.resolve("output");
+  await fs.mkdir(outputDir, { recursive: true });
+  const pdfPath = path.join(outputDir, `career-catalyst-${threadId}.pdf`);
+  await fs.writeFile(pdfPath, Buffer.from(result.finalPdfBase64, "base64"));
+  console.log(`\n  PDF saved → ${pdfPath}`);
+}
+
+// ─── Summary ──────────────────────────────────────────────────────────────────
+
+console.log("\n" + "─".repeat(64));
+console.log("  Pipeline Summary");
+console.log("─".repeat(64));
+
+console.log(`  CV score       : ${result.cvScore}/100`);
+console.log(`  Has GitHub     : ${result.hasGithub}`);
+
+if (result.githubProfile) {
+  console.log(`  GitHub langs   : ${result.githubProfile.languages.slice(0, 5).join(", ")}`);
+  console.log(`  GitHub repos   : ${result.githubProfile.topProjects.slice(0, 3).join(", ")}`);
+}
+
+console.log(`  Market reqs    : ${result.marketRequirements.length} items`);
+console.log(`  Skill gaps     : ${result.skillGaps.length} identified`);
+console.log(`  Has roadmap    : ${result.learningRoadmap !== null}`);
+console.log(`  Job matches    : ${result.jobMatches.length}`);
+
+if (result.jobMatches.length > 0) {
+  result.jobMatches.forEach((m, i) => {
+    console.log(`    ${i + 1}. ${m.title} @ ${m.company}`);
+    console.log(`       ${m.url}`);
+  });
+}
+
+console.log(`  Interview guides: ${result.interviewGuides.length}`);
+if (result.interviewGuides.length > 0) {
+  result.interviewGuides.forEach((g) => {
+    const general  = g.questionBank.filter((q) => q.type === "General").length;
+    const personal = g.questionBank.filter((q) => q.type === "Personal").length;
+    console.log(`    • ${g.company}: ${general} General + ${personal} Personal questions`);
+  });
+}
+
+console.log(`  PDF generated  : ${result.finalPdfBase64 !== null}`);
+console.log("─".repeat(64) + "\n");
