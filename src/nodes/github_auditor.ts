@@ -17,7 +17,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
-import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import {
@@ -34,8 +34,8 @@ const GithubAuditorOutputSchema = z.object({
 
 // ─── LLM ──────────────────────────────────────────────────────────────────────
 
-const llm = new ChatAnthropic({
-  model: "claude-haiku-4-5-20251001",
+const llm = new ChatOpenAI({
+  model: "gpt-4o-mini",
   temperature: 0.2,
 });
 const structuredLlm = llm.withStructuredOutput(GithubAuditorOutputSchema, {

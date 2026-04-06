@@ -17,8 +17,7 @@
  * Output slice: { marketRequirements }
  */
 
-import { TavilySearchResults } from "@langchain/community/tools/tavily_search";
-import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
@@ -45,7 +44,7 @@ const MarketScoutOutputSchema = z.object({
 
 // ─── LLM ──────────────────────────────────────────────────────────────────────
 
-const llm = new ChatAnthropic({ model: "claude-sonnet-4-6", temperature: 0 });
+const llm = new ChatOpenAI({ model: "gpt-4o", temperature: 0 });
 const structuredLlm = llm.withStructuredOutput(MarketScoutOutputSchema, {
   name: "market_scout_output",
 });
@@ -71,18 +70,35 @@ interface TavilyResult {
   url?: string;
 }
 
-/**
- * Parse Tavily's JSON string output into typed result objects.
- * Returns an empty array if the output is malformed — non-fatal.
- */
-function parseTavilyOutput(raw: string): TavilyResult[] {
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed as TavilyResult[];
-  } catch {
-    // Tavily occasionally returns plain text on errors
+interface TavilyResponse {
+  results?: TavilyResult[];
+  error?: string;
+}
+
+async function tavilySearch(query: string, maxResults = 5): Promise<TavilyResult[]> {
+  const apiKey = process.env.TAVILY_API_KEY;
+  if (!apiKey) throw new Error("TAVILY_API_KEY is not set.");
+
+  const res = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query,
+      max_results: maxResults,
+      include_answer: false,
+      include_raw_content: false,
+    }),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Tavily API error ${res.status}: ${text}`);
   }
-  return [];
+
+  const data = (await res.json()) as TavilyResponse;
+  if (data.error) throw new Error(`Tavily error: ${data.error}`);
+  return data.results ?? [];
 }
 
 /** Concatenate all result snippets into a single context block for the LLM. */
@@ -123,16 +139,10 @@ export async function marketScoutNode(
   queries.forEach((q, i) => console.log(`  [${i + 1}] ${q}`));
 
   // ── Tavily searches (parallel) ─────────────────────────────────────────────
-  const tavilyTool = new TavilySearchResults({
-    maxResults: 5,
-    apiKey: process.env.TAVILY_API_KEY,
-  });
-
   const searchResults = await Promise.all(
     queries.map(async (query) => {
       try {
-        const raw = await tavilyTool.invoke(query);
-        const results = parseTavilyOutput(raw);
+        const results = await tavilySearch(query, 5);
         console.log(`[market_scout] "${query}" → ${results.length} results`);
         return { query, results };
       } catch (err) {
@@ -140,7 +150,7 @@ export async function marketScoutNode(
           `[market_scout] Search failed for query "${query}": ${(err as Error).message}. ` +
             "Continuing with remaining queries.",
         );
-        return { query, results: [] };
+        return { query, results: [] as TavilyResult[] };
       }
     }),
   );

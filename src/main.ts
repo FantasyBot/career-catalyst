@@ -9,7 +9,7 @@
  *   • A plain-text string containing the CV content
  *
  * Environment variables (all required unless noted):
- *   ANTHROPIC_API_KEY   — Claude API key
+ *   OPENAI_API_KEY      — OpenAI API key
  *   TAVILY_API_KEY      — Tavily search API key
  *   GITHUB_TOKEN        — (optional) raises GitHub API rate limit from 60 → 5000 req/hr
  *
@@ -34,7 +34,7 @@ function requireEnv(name: string): string {
   return val;
 }
 
-requireEnv("ANTHROPIC_API_KEY");
+requireEnv("OPENAI_API_KEY");
 requireEnv("TAVILY_API_KEY");
 
 if (!process.env.GITHUB_TOKEN) {

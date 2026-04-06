@@ -9,8 +9,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@langchain/anthropic": "^0.3.0",
-    "@langchain/community": "^0.3.0",
+    "@langchain/openai": "^0.3.0",
     "@langchain/core": "^0.3.0",
     "@langchain/langgraph": "^0.2.0",
     "@octokit/rest": "^21.0.0",

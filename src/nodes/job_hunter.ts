@@ -12,7 +12,7 @@
  * Output slice: { jobMatches }
  */
 
-import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import {
@@ -117,7 +117,7 @@ function formatResultsForLlm(
 
 // ─── LLM ──────────────────────────────────────────────────────────────────────
 
-const llm = new ChatAnthropic({ model: "claude-sonnet-4-6", temperature: 0 });
+const llm = new ChatOpenAI({ model: "gpt-4o", temperature: 0 });
 const structuredLlm = llm.withStructuredOutput(JobHunterOutputSchema, {
   name: "job_hunter_output",
 });

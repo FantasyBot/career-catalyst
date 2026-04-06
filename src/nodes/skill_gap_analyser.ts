@@ -18,7 +18,7 @@
  * Output slice: { skillGaps, learningRoadmap }
  */
 
-import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
@@ -76,7 +76,7 @@ const RoadmapOutputSchema = z.object({
 
 // ─── Models ───────────────────────────────────────────────────────────────────
 
-const llm = new ChatAnthropic({ model: "claude-sonnet-4-6", temperature: 0.2 });
+const llm = new ChatOpenAI({ model: "gpt-4o", temperature: 0.2 });
 const gapDetector = llm.withStructuredOutput(GapDetectorOutputSchema, {
   name: "gap_detector",
 });

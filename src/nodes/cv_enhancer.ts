@@ -16,7 +16,7 @@
  * Output slice: { improvedCv, cvScore }
  */
 
-import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
@@ -60,7 +60,7 @@ const RewriterOutputSchema = z.object({
 // ─── Models ───────────────────────────────────────────────────────────────────
 
 // Sonnet for both passes — critic reasoning and rewrite quality both matter
-const llm = new ChatAnthropic({ model: "claude-sonnet-4-6", temperature: 0.1 });
+const llm = new ChatOpenAI({ model: "gpt-4o", temperature: 0.1 });
 const critic = llm.withStructuredOutput(CriticOutputSchema, {
   name: "cv_critic",
 });

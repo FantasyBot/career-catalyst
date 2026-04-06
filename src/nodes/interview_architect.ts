@@ -23,7 +23,7 @@
  * Output slice: { interviewGuides }
  */
 
-import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import {
@@ -71,8 +71,8 @@ const PersonalBankOutputSchema = z.object({
 
 // ─── Model ────────────────────────────────────────────────────────────────────
 
-const llm = new ChatAnthropic({
-  model: "claude-sonnet-4-6",
+const llm = new ChatOpenAI({
+  model: "gpt-4o",
   temperature: 0.4, // slight creativity for question variety; answers stay precise
   maxTokens: 8192, // generous — 30 full Q+A pairs need room
 });

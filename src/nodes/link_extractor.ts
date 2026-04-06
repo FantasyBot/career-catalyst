@@ -13,7 +13,7 @@
  * Output slice: { githubUrl, hasGithub }
  */
 
-import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
@@ -60,8 +60,8 @@ function regexExtract(text: string): string | null {
 
 // ─── LLM pass (fallback) ───────────────────────────────────────────────────────
 
-const llm = new ChatAnthropic({
-  model: "claude-haiku-4-5-20251001", // fast & cheap for extraction tasks
+const llm = new ChatOpenAI({
+  model: "gpt-4o-mini", // fast & cheap for extraction tasks
   temperature: 0,
 });
 
