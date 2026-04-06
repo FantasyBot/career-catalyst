@@ -40,7 +40,7 @@ requireEnv("TAVILY_API_KEY");
 if (!process.env.GITHUB_TOKEN) {
   console.warn(
     "  WARN: GITHUB_TOKEN not set — GitHub API rate limit is 60 req/hr. " +
-      "Set it to raise the limit to 5000 req/hr.\n"
+      "Set it to raise the limit to 5000 req/hr.\n",
   );
 }
 
@@ -50,7 +50,7 @@ const [, , cvInput, targetRole] = process.argv;
 
 if (!cvInput || !targetRole) {
   console.error(
-    "Usage: ts-node --esm src/main.ts <cv-path-or-text> <target-role> [github-url]\n"
+    "Usage: ts-node --esm src/main.ts <cv-path-or-text> <target-role> [github-url]\n",
   );
   process.exit(1);
 }
@@ -64,7 +64,9 @@ console.log("  Career Catalyst");
 console.log("═".repeat(64));
 console.log(`  Thread  : ${threadId}`);
 console.log(`  Role    : ${targetRole}`);
-console.log(`  CV      : ${cvInput.length > 60 ? cvInput.slice(0, 57) + "..." : cvInput}`);
+console.log(
+  `  CV      : ${cvInput.length > 60 ? cvInput.slice(0, 57) + "..." : cvInput}`,
+);
 console.log("═".repeat(64) + "\n");
 
 const initialState: Partial<GraphStateType> = {
@@ -104,8 +106,12 @@ console.log(`  CV score       : ${result.cvScore}/100`);
 console.log(`  Has GitHub     : ${result.hasGithub}`);
 
 if (result.githubProfile) {
-  console.log(`  GitHub langs   : ${result.githubProfile.languages.slice(0, 5).join(", ")}`);
-  console.log(`  GitHub repos   : ${result.githubProfile.topProjects.slice(0, 3).join(", ")}`);
+  console.log(
+    `  GitHub langs   : ${result.githubProfile.languages.slice(0, 5).join(", ")}`,
+  );
+  console.log(
+    `  GitHub repos   : ${result.githubProfile.topProjects.slice(0, 3).join(", ")}`,
+  );
 }
 
 console.log(`  Market reqs    : ${result.marketRequirements.length} items`);
@@ -123,9 +129,11 @@ if (result.jobMatches.length > 0) {
 console.log(`  Interview guides: ${result.interviewGuides.length}`);
 if (result.interviewGuides.length > 0) {
   result.interviewGuides.forEach((g) => {
-    const general  = g.questionBank.filter((q) => q.type === "General").length;
+    const general = g.questionBank.filter((q) => q.type === "General").length;
     const personal = g.questionBank.filter((q) => q.type === "Personal").length;
-    console.log(`    • ${g.company}: ${general} General + ${personal} Personal questions`);
+    console.log(
+      `    • ${g.company}: ${general} General + ${personal} Personal questions`,
+    );
   });
 }
 

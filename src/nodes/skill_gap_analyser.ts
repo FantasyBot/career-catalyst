@@ -30,19 +30,19 @@ const GapDetectorOutputSchema = z.object({
     .array(z.string())
     .describe(
       "Technical skills, tools, or frameworks from marketRequirements that are " +
-        "absent or insufficiently demonstrated in the CV. E.g. 'Kubernetes', 'GraphQL'."
+        "absent or insufficiently demonstrated in the CV. E.g. 'Kubernetes', 'GraphQL'.",
     ),
   softSkillGaps: z
     .array(z.string())
     .describe(
       "Behavioural, process, or leadership competencies from marketRequirements " +
-        "that are absent. E.g. 'Agile / Scrum', 'Stakeholder Communication'."
+        "that are absent. E.g. 'Agile / Scrum', 'Stakeholder Communication'.",
     ),
   gapReasoning: z
     .string()
     .describe(
       "Brief explanation of why each category of gaps was identified — " +
-        "reference specific sections of the CV."
+        "reference specific sections of the CV.",
     ),
 });
 
@@ -50,14 +50,18 @@ const ResourceSchema = z.object({
   name: z.string().describe("Resource title, e.g. 'Official Kubernetes Docs'"),
   url: z
     .string()
-    .describe("Canonical URL for the resource — use the real home page, not a search URL"),
+    .describe(
+      "Canonical URL for the resource — use the real home page, not a search URL",
+    ),
   type: z.enum(["docs", "course", "book", "tutorial", "practice"]),
 });
 
 const RoadmapTopicSchema = z.object({
   topic: z.string().describe("Skill or competency to learn"),
   priority: z.enum(["Critical", "High", "Medium"]),
-  rationale: z.string().describe("One sentence: why this gap matters for the target role"),
+  rationale: z
+    .string()
+    .describe("One sentence: why this gap matters for the target role"),
   resources: z.array(ResourceSchema).min(1).max(3),
 });
 
@@ -66,7 +70,7 @@ const RoadmapOutputSchema = z.object({
     .string()
     .describe(
       "Complete Markdown learning roadmap. Must contain 3-5 topics, each with " +
-        "priority, rationale, and concrete resources with real URLs."
+        "priority, rationale, and concrete resources with real URLs.",
     ),
 });
 
@@ -89,7 +93,7 @@ const roadmapBuilder = llm.withStructuredOutput(RoadmapOutputSchema, {
  */
 function buildRoadmapPromptContext(
   gaps: { hard: string[]; soft: string[] },
-  targetRole: string
+  targetRole: string,
 ): string {
   const allGaps = [
     ...gaps.hard.map((g) => `[Hard] ${g}`),
@@ -113,12 +117,12 @@ async function detectGaps(state: GraphStateType) {
         "ONLY skills that are genuinely absent or too weak to pass screening. " +
         "Do not flag skills that are clearly present even if not explicitly listed " +
         "(e.g. if the CV shows 5 years of React work, don't flag 'JavaScript'). " +
-        "Be precise — false positives waste the candidate's time."
+        "Be precise — false positives waste the candidate's time.",
     ),
     new HumanMessage(
       `## Target Role\n${state.targetRole}\n\n` +
         `## Market Requirements\n${state.marketRequirements.map((r) => `- ${r}`).join("\n")}\n\n` +
-        `## Candidate CV\n${cvText}`
+        `## Candidate CV\n${cvText}`,
     ),
   ];
 
@@ -129,7 +133,7 @@ async function detectGaps(state: GraphStateType) {
 
 async function generateRoadmap(
   state: GraphStateType,
-  gaps: { hard: string[]; soft: string[] }
+  gaps: { hard: string[]; soft: string[] },
 ): Promise<string> {
   const context = buildRoadmapPromptContext(gaps, state.targetRole);
 
@@ -150,7 +154,7 @@ async function generateRoadmap(
         "**Why it matters:** ...\n\n" +
         "**Resources:**\n" +
         "- [Official Kubernetes Docs](https://kubernetes.io/docs/) — docs\n" +
-        "- [KodeKloud CKA Course](https://kodekloud.com/courses/cka/) — course\n"
+        "- [KodeKloud CKA Course](https://kodekloud.com/courses/cka/) — course\n",
     ),
     new HumanMessage(context),
   ];
@@ -162,18 +166,18 @@ async function generateRoadmap(
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
 export async function skillGapAnalyserNode(
-  state: GraphStateType
+  state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   if (state.marketRequirements.length === 0) {
     throw new Error(
-      "skill_gap_analyser: marketRequirements is empty. Run market_scout first."
+      "skill_gap_analyser: marketRequirements is empty. Run market_scout first.",
     );
   }
 
   const cvText = state.improvedCv ?? state.originalCv;
   if (!cvText) {
     throw new Error(
-      "skill_gap_analyser: no CV text available. Run pdf_parser and cv_enhancer first."
+      "skill_gap_analyser: no CV text available. Run pdf_parser and cv_enhancer first.",
     );
   }
 
@@ -187,7 +191,7 @@ export async function skillGapAnalyserNode(
 
   console.log(
     `[skill_gap_analyser] Found ${hardSkillGaps.length} hard gaps, ` +
-      `${softSkillGaps.length} soft gaps.`
+      `${softSkillGaps.length} soft gaps.`,
   );
   if (skillGaps.length > 0) {
     console.log(`[skill_gap_analyser] Gaps: ${skillGaps.join(", ")}`);
@@ -196,14 +200,14 @@ export async function skillGapAnalyserNode(
 
   if (skillGaps.length === 0) {
     console.log(
-      "[skill_gap_analyser] No gaps found — skipping roadmap generation."
+      "[skill_gap_analyser] No gaps found — skipping roadmap generation.",
     );
     return { skillGaps: [], learningRoadmap: null };
   }
 
   // ── Phase 2: Generate roadmap ──────────────────────────────────────────────
   console.log(
-    `[skill_gap_analyser] Phase 2 — generating learning roadmap for ${skillGaps.length} gaps...`
+    `[skill_gap_analyser] Phase 2 — generating learning roadmap for ${skillGaps.length} gaps...`,
   );
   const learningRoadmap = await generateRoadmap(state, {
     hard: hardSkillGaps,
@@ -211,7 +215,7 @@ export async function skillGapAnalyserNode(
   });
 
   console.log(
-    `[skill_gap_analyser] Roadmap generated. Length: ${learningRoadmap.length} chars.`
+    `[skill_gap_analyser] Roadmap generated. Length: ${learningRoadmap.length} chars.`,
   );
 
   return { skillGaps, learningRoadmap };

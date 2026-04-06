@@ -32,12 +32,14 @@ const MarketScoutOutputSchema = z.object({
         .string()
         .min(2)
         .max(80)
-        .describe("A single skill, tool, technology, or competency — concise label only")
+        .describe(
+          "A single skill, tool, technology, or competency — concise label only",
+        ),
     )
     .min(10)
     .max(40)
     .describe(
-      "Deduplicated, ranked list of skills/tools the market expects for this role"
+      "Deduplicated, ranked list of skills/tools the market expects for this role",
     ),
 });
 
@@ -85,12 +87,13 @@ function parseTavilyOutput(raw: string): TavilyResult[] {
 
 /** Concatenate all result snippets into a single context block for the LLM. */
 function aggregateSnippets(
-  queryResults: Array<{ query: string; results: TavilyResult[] }>
+  queryResults: Array<{ query: string; results: TavilyResult[] }>,
 ): string {
   const sections = queryResults.map(({ query, results }) => {
     const snippets = results
       .map((r) => r.content?.trim())
-      .filter((c): c is string => Boolean(c) && c.length > 20)
+      // `c` can be `undefined` (from optional chaining); exclude it before using `c.length`.
+      .filter((c): c is string => c !== undefined && c.length > 20)
       .slice(0, 4) // max 4 snippets per query to stay within token budget
       .join("\n---\n");
 
@@ -103,16 +106,20 @@ function aggregateSnippets(
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
 export async function marketScoutNode(
-  state: GraphStateType
+  state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   const { targetRole } = state;
 
   if (!targetRole) {
-    throw new Error("market_scout: state.targetRole is empty. Set it before invoking the graph.");
+    throw new Error(
+      "market_scout: state.targetRole is empty. Set it before invoking the graph.",
+    );
   }
 
   const queries = buildQueries(targetRole);
-  console.log(`[market_scout] Running ${queries.length} Tavily searches for: "${targetRole}"`);
+  console.log(
+    `[market_scout] Running ${queries.length} Tavily searches for: "${targetRole}"`,
+  );
   queries.forEach((q, i) => console.log(`  [${i + 1}] ${q}`));
 
   // ── Tavily searches (parallel) ─────────────────────────────────────────────
@@ -131,24 +138,26 @@ export async function marketScoutNode(
       } catch (err) {
         console.warn(
           `[market_scout] Search failed for query "${query}": ${(err as Error).message}. ` +
-            "Continuing with remaining queries."
+            "Continuing with remaining queries.",
         );
         return { query, results: [] };
       }
-    })
+    }),
   );
 
   const hasAnyResults = searchResults.some((r) => r.results.length > 0);
   if (!hasAnyResults) {
     throw new Error(
       "market_scout: all Tavily searches returned empty results. " +
-        "Check TAVILY_API_KEY and network connectivity."
+        "Check TAVILY_API_KEY and network connectivity.",
     );
   }
 
   const aggregated = aggregateSnippets(searchResults);
   const snippetWordCount = aggregated.split(/\s+/).length;
-  console.log(`[market_scout] Aggregated ${snippetWordCount} words — sending to LLM for extraction.`);
+  console.log(
+    `[market_scout] Aggregated ${snippetWordCount} words — sending to LLM for extraction.`,
+  );
 
   // ── LLM: extract structured requirements ──────────────────────────────────
   const messages = [
@@ -159,12 +168,12 @@ export async function marketScoutNode(
         "Each item must be a concise label (e.g. 'TypeScript', 'System Design', " +
         "'REST API Design', 'AWS Lambda'). Do not include generic phrases like " +
         "'communication skills' unless they appear repeatedly as a hard requirement. " +
-        "Rank from most to least frequently mentioned."
+        "Rank from most to least frequently mentioned.",
     ),
     new HumanMessage(
       `Target role: ${targetRole}\n\n` +
         `Market research results:\n\n${aggregated}\n\n` +
-        "Extract all distinct market requirements for this role."
+        "Extract all distinct market requirements for this role.",
     ),
   ];
 
@@ -175,7 +184,7 @@ export async function marketScoutNode(
 
   console.log(
     `[market_scout] Validated ${marketRequirements.length} market requirements. ` +
-      `Top 5: ${marketRequirements.slice(0, 5).join(", ")}`
+      `Top 5: ${marketRequirements.slice(0, 5).join(", ")}`,
   );
 
   return { marketRequirements };

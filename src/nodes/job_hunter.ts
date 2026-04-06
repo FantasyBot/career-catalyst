@@ -15,7 +15,11 @@
 import { ChatAnthropic } from "@langchain/anthropic";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
-import { JobMatchSchema, type JobMatch, type GraphStateType } from "../state.js";
+import {
+  JobMatchSchema,
+  type JobMatch,
+  type GraphStateType,
+} from "../state.js";
 
 // ─── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -26,7 +30,7 @@ const JobHunterOutputSchema = z.object({
     .length(3)
     .describe(
       "Exactly 3 real, distinct job openings. Each must have a real URL pointing " +
-        "to an actual posting — no fabricated links."
+        "to an actual posting — no fabricated links.",
     ),
 });
 
@@ -47,7 +51,7 @@ interface TavilyResponse {
 async function tavilySearch(
   query: string,
   days: number = 30,
-  maxResults: number = 5
+  maxResults: number = 5,
 ): Promise<TavilyRawResult[]> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error("TAVILY_API_KEY is not set.");
@@ -59,7 +63,7 @@ async function tavilySearch(
       api_key: apiKey,
       query,
       max_results: maxResults,
-      days,            // filter to last N days — server-side
+      days, // filter to last N days — server-side
       include_answer: false,
       include_raw_content: false,
     }),
@@ -97,14 +101,14 @@ function buildQueries(targetRole: string): string[] {
 // ─── Result formatter ──────────────────────────────────────────────────────────
 
 function formatResultsForLlm(
-  queryResults: Array<{ query: string; results: TavilyRawResult[] }>
+  queryResults: Array<{ query: string; results: TavilyRawResult[] }>,
 ): string {
   return queryResults
     .map(({ query, results }) => {
       if (results.length === 0) return `### Query: "${query}"\n(no results)\n`;
       const lines = results.map(
         (r, i) =>
-          `[${i + 1}] Title: ${r.title ?? "N/A"}\n    URL: ${r.url ?? "N/A"}\n    Snippet: ${(r.content ?? "").slice(0, 300)}`
+          `[${i + 1}] Title: ${r.title ?? "N/A"}\n    URL: ${r.url ?? "N/A"}\n    Snippet: ${(r.content ?? "").slice(0, 300)}`,
       );
       return `### Query: "${query}"\n${lines.join("\n\n")}`;
     })
@@ -121,7 +125,7 @@ const structuredLlm = llm.withStructuredOutput(JobHunterOutputSchema, {
 async function extractJobMatches(
   rawContext: string,
   targetRole: string,
-  cvSkills: string
+  cvSkills: string,
 ): Promise<JobMatch[]> {
   const messages = [
     new SystemMessage(
@@ -134,12 +138,12 @@ async function extractJobMatches(
         "   required skills, and why it matches the candidate's profile.\n" +
         "4. If fewer than 3 distinct postings are available, select the best available " +
         "   and note 'Limited results available' in the description.\n" +
-        "5. Deduplicate — do not return the same posting twice."
+        "5. Deduplicate — do not return the same posting twice.",
     ),
     new HumanMessage(
       `## Target Role\n${targetRole}\n\n` +
         `## Candidate's Key Skills\n${cvSkills}\n\n` +
-        `## Search Results (last 30 days)\n\n${rawContext}`
+        `## Search Results (last 30 days)\n\n${rawContext}`,
     ),
   ];
 
@@ -150,7 +154,7 @@ async function extractJobMatches(
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
 export async function jobHunterNode(
-  state: GraphStateType
+  state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   const { targetRole, improvedCv, originalCv, marketRequirements } = state;
 
@@ -166,7 +170,9 @@ export async function jobHunterNode(
       : cvText.slice(0, 800);
 
   const queries = buildQueries(targetRole);
-  console.log(`[job_hunter] Running ${queries.length} Tavily searches (days=30) for: "${targetRole}"`);
+  console.log(
+    `[job_hunter] Running ${queries.length} Tavily searches (days=30) for: "${targetRole}"`,
+  );
 
   // ── Parallel searches ──────────────────────────────────────────────────────
   const queryResults = await Promise.all(
@@ -177,32 +183,36 @@ export async function jobHunterNode(
         return { query, results };
       } catch (err) {
         console.warn(
-          `[job_hunter] Search failed for "${query}": ${(err as Error).message}`
+          `[job_hunter] Search failed for "${query}": ${(err as Error).message}`,
         );
         return { query, results: [] as TavilyRawResult[] };
       }
-    })
+    }),
   );
 
   const totalResults = queryResults.reduce((n, r) => n + r.results.length, 0);
   if (totalResults === 0) {
     throw new Error(
       "job_hunter: all Tavily searches returned empty results. " +
-        "Check TAVILY_API_KEY and network connectivity."
+        "Check TAVILY_API_KEY and network connectivity.",
     );
   }
 
   const rawContext = formatResultsForLlm(queryResults);
   console.log(
-    `[job_hunter] ${totalResults} raw results aggregated — extracting 3 matches via LLM.`
+    `[job_hunter] ${totalResults} raw results aggregated — extracting 3 matches via LLM.`,
   );
 
   // ── LLM extraction + Zod validation ───────────────────────────────────────
-  const jobMatches = await extractJobMatches(rawContext, targetRole, cvSkillsSummary);
+  const jobMatches = await extractJobMatches(
+    rawContext,
+    targetRole,
+    cvSkillsSummary,
+  );
 
   console.log(
     `[job_hunter] Validated ${jobMatches.length} job matches:\n` +
-      jobMatches.map((m) => `  • ${m.title} @ ${m.company}`).join("\n")
+      jobMatches.map((m) => `  • ${m.title} @ ${m.company}`).join("\n"),
   );
 
   return { jobMatches };

@@ -20,7 +20,11 @@ import { Octokit } from "@octokit/rest";
 import { ChatAnthropic } from "@langchain/anthropic";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
-import { GithubProfileSchema, type GithubProfile, type GraphStateType } from "../state.js";
+import {
+  GithubProfileSchema,
+  type GithubProfile,
+  type GraphStateType,
+} from "../state.js";
 
 // ─── Output schema ─────────────────────────────────────────────────────────────
 
@@ -30,7 +34,10 @@ const GithubAuditorOutputSchema = z.object({
 
 // ─── LLM ──────────────────────────────────────────────────────────────────────
 
-const llm = new ChatAnthropic({ model: "claude-haiku-4-5-20251001", temperature: 0.2 });
+const llm = new ChatAnthropic({
+  model: "claude-haiku-4-5-20251001",
+  temperature: 0.2,
+});
 const structuredLlm = llm.withStructuredOutput(GithubAuditorOutputSchema, {
   name: "github_auditor_output",
 });
@@ -39,15 +46,15 @@ const structuredLlm = llm.withStructuredOutput(GithubAuditorOutputSchema, {
 
 function extractUsername(githubUrl: string): string {
   // Handles: https://github.com/username  OR  github.com/username
-  const match = githubUrl.match(/github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9]?)/);
+  const match = githubUrl.match(
+    /github\.com\/([A-Za-z0-9][A-Za-z0-9-]{0,37}[A-Za-z0-9]?)/,
+  );
   if (!match) throw new Error(`Cannot parse username from URL: ${githubUrl}`);
   return match[1];
 }
 
 /** Aggregate byte counts per language across repos into a ranked top-N list. */
-function rankLanguages(
-  repoLanguages: Record<string, number>[]
-): string[] {
+function rankLanguages(repoLanguages: Record<string, number>[]): string[] {
   const totals: Record<string, number> = {};
   for (const map of repoLanguages) {
     for (const [lang, bytes] of Object.entries(map)) {
@@ -70,7 +77,7 @@ function buildAuditContext(
     pushed_at: string | null;
     topics: string[];
   }>,
-  topLanguages: string[]
+  topLanguages: string[],
 ): string {
   const repoLines = repos.map((r) =>
     [
@@ -80,7 +87,7 @@ function buildAuditContext(
       r.language ? `  Primary language: ${r.language}` : "",
     ]
       .filter(Boolean)
-      .join("\n")
+      .join("\n"),
   );
 
   return [
@@ -95,7 +102,7 @@ function buildAuditContext(
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
 export async function githubAuditorNode(
-  state: GraphStateType
+  state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   // Belt-and-braces guard — routing should prevent this from being reached
   if (!state.hasGithub || !state.githubUrl) {
@@ -121,7 +128,9 @@ export async function githubAuditorNode(
     });
 
     if (repos.length === 0) {
-      console.warn(`[github_auditor] ${username} has no public repos — audit skipped.`);
+      console.warn(
+        `[github_auditor] ${username} has no public repos — audit skipped.`,
+      );
       return { githubProfile: null, hasGithub: false };
     }
 
@@ -137,7 +146,7 @@ export async function githubAuditorNode(
         } catch {
           return {} as Record<string, number>; // non-fatal — skip this repo's languages
         }
-      })
+      }),
     );
 
     const topLanguages = rankLanguages(languageMaps);
@@ -146,23 +155,30 @@ export async function githubAuditorNode(
       name: r.name,
       description: r.description,
       stargazers_count: r.stargazers_count ?? 0,
-      language: r.language,
+      // Octokit can represent missing `language` as `undefined`; our context wants `null`.
+      language: r.language ?? null,
       pushed_at: r.pushed_at ?? null,
       topics: r.topics ?? [],
     }));
 
-    const auditContext = buildAuditContext(username, repoSummaries, topLanguages);
-    console.log("[github_auditor] Repo context built — requesting LLM summary.");
+    const auditContext = buildAuditContext(
+      username,
+      repoSummaries,
+      topLanguages,
+    );
+    console.log(
+      "[github_auditor] Repo context built — requesting LLM summary.",
+    );
 
     // ── LLM: produce structured GithubProfile ──────────────────────────────
     const messages = [
       new SystemMessage(
         "You are a technical recruiter summarising a candidate's GitHub presence. " +
           "Be factual, specific, and concise. Reference actual project names and languages. " +
-          "The summary should be 2-4 sentences that a hiring manager can read in 10 seconds."
+          "The summary should be 2-4 sentences that a hiring manager can read in 10 seconds.",
       ),
       new HumanMessage(
-        `Based on the GitHub data below, produce a structured profile.\n\n${auditContext}`
+        `Based on the GitHub data below, produce a structured profile.\n\n${auditContext}`,
       ),
     ];
 
@@ -174,7 +190,7 @@ export async function githubAuditorNode(
 
     console.log(
       `[github_auditor] Done. Languages: ${validated.languages.join(", ")} | ` +
-        `Projects: ${validated.topProjects.join(", ")}`
+        `Projects: ${validated.topProjects.join(", ")}`,
     );
 
     return { githubProfile: validated, hasGithub: true };
@@ -186,15 +202,15 @@ export async function githubAuditorNode(
     if (status === 403 || status === 429) {
       console.warn(
         `[github_auditor] GitHub Audit Skipped — rate limit hit (HTTP ${status}). ` +
-          "Set GITHUB_TOKEN to increase quota. Continuing without GitHub data."
+          "Set GITHUB_TOKEN to increase quota. Continuing without GitHub data.",
       );
     } else if (status === 404) {
       console.warn(
-        `[github_auditor] GitHub Audit Skipped — profile not found or private (HTTP 404): ${username}`
+        `[github_auditor] GitHub Audit Skipped — profile not found or private (HTTP 404): ${username}`,
       );
     } else {
       console.warn(
-        `[github_auditor] GitHub Audit Skipped — unexpected error: ${message}. Continuing.`
+        `[github_auditor] GitHub Audit Skipped — unexpected error: ${message}. Continuing.`,
       );
     }
 

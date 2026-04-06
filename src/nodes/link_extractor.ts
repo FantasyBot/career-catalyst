@@ -27,14 +27,16 @@ const LinkExtractorOutputSchema = z.object({
     .nullable()
     .describe(
       "The GitHub profile URL found in the CV, fully qualified with https://. " +
-        "Must point to a user profile, not a repo. Return null if absent."
+        "Must point to a user profile, not a repo. Return null if absent.",
     ),
   hasGithub: z
     .boolean()
     .describe("True when a valid GitHub profile URL was found."),
   reasoning: z
     .string()
-    .describe("One sentence: where you found the URL or why you concluded none exists."),
+    .describe(
+      "One sentence: where you found the URL or why you concluded none exists.",
+    ),
 });
 
 type LinkExtractorOutput = z.infer<typeof LinkExtractorOutputSchema>;
@@ -76,10 +78,10 @@ async function llmExtract(cvText: string): Promise<LinkExtractorOutput> {
         "A profile URL looks like github.com/<username> (one path segment). " +
         "Do not confuse repo links (github.com/user/repo) with profile links. " +
         "If you find a URL without a scheme, prepend https://. " +
-        "Return null for githubUrl if no GitHub profile is present."
+        "Return null for githubUrl if no GitHub profile is present.",
     ),
     new HumanMessage(
-      `Extract the GitHub profile URL from the following CV text:\n\n${snippet}`
+      `Extract the GitHub profile URL from the following CV text:\n\n${snippet}`,
     ),
   ];
 
@@ -89,12 +91,14 @@ async function llmExtract(cvText: string): Promise<LinkExtractorOutput> {
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
 export async function linkExtractorNode(
-  state: GraphStateType
+  state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   const { originalCv } = state;
 
   if (!originalCv) {
-    throw new Error("link_extractor: state.originalCv is empty. Run pdf_parser first.");
+    throw new Error(
+      "link_extractor: state.originalCv is empty. Run pdf_parser first.",
+    );
   }
 
   // Pass 1 — fast regex
@@ -109,7 +113,9 @@ export async function linkExtractorNode(
   }
 
   // Pass 2 — LLM fallback
-  console.log("[link_extractor] Regex found nothing — falling back to LLM extraction.");
+  console.log(
+    "[link_extractor] Regex found nothing — falling back to LLM extraction.",
+  );
   const llmResult = await llmExtract(originalCv);
 
   console.log(`[link_extractor] LLM reasoning: ${llmResult.reasoning}`);

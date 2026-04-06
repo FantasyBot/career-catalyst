@@ -34,13 +34,13 @@ const ReportGeneratorOutputSchema = z.object({
 // ─── Markdown line types ───────────────────────────────────────────────────────
 
 type MdLine =
-  | { kind: "h1";     text: string }
-  | { kind: "h2";     text: string }
-  | { kind: "h3";     text: string }
+  | { kind: "h1"; text: string }
+  | { kind: "h2"; text: string }
+  | { kind: "h3"; text: string }
   | { kind: "bullet"; text: string }
   | { kind: "hr" }
   | { kind: "blank" }
-  | { kind: "body";   text: string };
+  | { kind: "body"; text: string };
 
 // ─── Markdown parser ───────────────────────────────────────────────────────────
 
@@ -48,11 +48,11 @@ type MdLine =
 function stripInlineMarkers(text: string): string {
   return text
     .replace(/\*\*\*(.+?)\*\*\*/g, "$1") // ***bold+italic***
-    .replace(/\*\*(.+?)\*\*/g, "$1")      // **bold**
-    .replace(/__(.+?)__/g, "$1")           // __bold__
-    .replace(/\*(.+?)\*/g, "$1")           // *italic*
-    .replace(/_(.+?)_/g, "$1")             // _italic_
-    .replace(/`(.+?)`/g, "$1")            // `code`
+    .replace(/\*\*(.+?)\*\*/g, "$1") // **bold**
+    .replace(/__(.+?)__/g, "$1") // __bold__
+    .replace(/\*(.+?)\*/g, "$1") // *italic*
+    .replace(/_(.+?)_/g, "$1") // _italic_
+    .replace(/`(.+?)`/g, "$1") // `code`
     .trim();
 }
 
@@ -88,20 +88,20 @@ function parseMarkdown(md: string): MdLine[] {
 // ─── PDF renderer ─────────────────────────────────────────────────────────────
 
 // A4 dimensions in mm
-const PAGE_W  = 210;
-const PAGE_H  = 297;
-const MARGIN  = 20;          // left, right, top, bottom
-const CONTENT_W = PAGE_W - MARGIN * 2;  // 170mm
+const PAGE_W = 210;
+const PAGE_H = 297;
+const MARGIN = 20; // left, right, top, bottom
+const CONTENT_W = PAGE_W - MARGIN * 2; // 170mm
 
 // Vertical spacing (mm) consumed after each line type
 const LINE_HEIGHT: Record<MdLine["kind"], number> = {
-  h1:     10,
-  h2:     9,
-  h3:     8,
+  h1: 10,
+  h2: 9,
+  h3: 8,
   bullet: 7,
-  hr:     6,
-  blank:  4,
-  body:   7,
+  hr: 6,
+  blank: 4,
+  body: 7,
 };
 
 function renderPdf(lines: MdLine[]): jsPDF {
@@ -120,7 +120,7 @@ function renderPdf(lines: MdLine[]): jsPDF {
     text: string,
     x: number,
     maxW: number,
-    lineH: number
+    lineH: number,
   ) => {
     const segments = doc.splitTextToSize(text, maxW) as string[];
     for (const seg of segments) {
@@ -173,9 +173,9 @@ function renderPdf(lines: MdLine[]): jsPDF {
         doc.setFont("helvetica", "normal");
         doc.setFontSize(12);
         const bulletChar = "\u2022"; // •
-        const indent = 8;            // mm
+        const indent = 8; // mm
         const bulletX = MARGIN + indent;
-        const textW   = CONTENT_W - indent - 2;
+        const textW = CONTENT_W - indent - 2;
 
         ensureSpace(LINE_HEIGHT.bullet);
         doc.text(bulletChar, MARGIN + 2, y);
@@ -195,7 +195,7 @@ function renderPdf(lines: MdLine[]): jsPDF {
         doc.setLineWidth(0.3);
         doc.setDrawColor(180); // light grey
         doc.line(MARGIN, y, MARGIN + CONTENT_W, y);
-        doc.setDrawColor(0);   // reset to black
+        doc.setDrawColor(0); // reset to black
         y += LINE_HEIGHT.hr;
         break;
       }
@@ -220,21 +220,25 @@ function renderPdf(lines: MdLine[]): jsPDF {
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
 export async function reportGeneratorNode(
-  state: GraphStateType
+  state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   const cvText = state.improvedCv ?? state.originalCv;
 
   if (!cvText) {
     throw new Error(
       "report_generator: no CV text available in state. " +
-        "Run pdf_parser and cv_enhancer first."
+        "Run pdf_parser and cv_enhancer first.",
     );
   }
 
-  console.log(`[report_generator] Parsing Markdown CV (${cvText.length} chars)...`);
+  console.log(
+    `[report_generator] Parsing Markdown CV (${cvText.length} chars)...`,
+  );
 
   const mdLines = parseMarkdown(cvText);
-  console.log(`[report_generator] Parsed ${mdLines.length} lines — rendering PDF.`);
+  console.log(
+    `[report_generator] Parsed ${mdLines.length} lines — rendering PDF.`,
+  );
 
   const doc = renderPdf(mdLines);
 
@@ -250,7 +254,7 @@ export async function reportGeneratorNode(
   console.log(
     `[report_generator] PDF generated. ` +
       `Pages: ${doc.getNumberOfPages()} | ` +
-      `Size: ~${sizeKb} KB`
+      `Size: ~${sizeKb} KB`,
   );
 
   return { finalPdfBase64 };

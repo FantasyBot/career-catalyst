@@ -46,7 +46,7 @@ const GeneralBankOutputSchema = z.object({
     .describe(
       "Hiring spec for this specific company: known interview stages (phone screen, " +
         "take-home, system design, culture/values), panel makeup, what they weight most, " +
-        "and any publicly known culture signals (e.g. Amazon LPs, Google's googliness)."
+        "and any publicly known culture signals (e.g. Amazon LPs, Google's googliness).",
     ),
   questions: z
     .array(InterviewQuestionSchema)
@@ -54,7 +54,7 @@ const GeneralBankOutputSchema = z.object({
     .describe(
       "Exactly 20 General questions. Distribution: " +
         "6 System Design · 7 Tech Stack · 4 Behavioural · 3 Role Specific. " +
-        "All type='General'."
+        "All type='General'.",
     ),
 });
 
@@ -65,7 +65,7 @@ const PersonalBankOutputSchema = z.object({
     .describe(
       "Exactly 10 Personal Deep-Dive questions. All type='Personal', " +
         "category='Personal Deep-Dive'. Each question must reference a specific " +
-        "project name, library, metric, or achievement from the candidate's actual history."
+        "project name, library, metric, or achievement from the candidate's actual history.",
     ),
 });
 
@@ -74,7 +74,7 @@ const PersonalBankOutputSchema = z.object({
 const llm = new ChatAnthropic({
   model: "claude-sonnet-4-6",
   temperature: 0.4, // slight creativity for question variety; answers stay precise
-  maxTokens: 8192,  // generous — 30 full Q+A pairs need room
+  maxTokens: 8192, // generous — 30 full Q+A pairs need room
 });
 
 const generalLlm = llm.withStructuredOutput(GeneralBankOutputSchema, {
@@ -103,13 +103,16 @@ function buildCandidateContext(state: GraphStateType): string {
       "── GitHub Profile ──",
       `Languages  : ${state.githubProfile.languages.join(", ")}`,
       `Top Repos  : ${state.githubProfile.topProjects.join(", ")}`,
-      `Summary    : ${state.githubProfile.summary}`
+      `Summary    : ${state.githubProfile.summary}`,
     );
   } else {
     sections.push("── GitHub Profile ──", "(not available)");
   }
 
-  const cvSnippet = (state.improvedCv ?? state.originalCv ?? "").slice(0, 3_500);
+  const cvSnippet = (state.improvedCv ?? state.originalCv ?? "").slice(
+    0,
+    3_500,
+  );
   sections.push("", "── CV (truncated to 3500 chars) ──", cvSnippet);
 
   return sections.join("\n");
@@ -119,7 +122,7 @@ function buildCandidateContext(state: GraphStateType): string {
 
 async function generateGeneralBank(
   state: GraphStateType,
-  match: JobMatch
+  match: JobMatch,
 ): Promise<z.infer<typeof GeneralBankOutputSchema>> {
   const messages = [
     new SystemMessage(
@@ -138,12 +141,12 @@ async function generateGeneralBank(
         "  - category must match the distribution above\n" +
         "  - type must be 'General'\n\n" +
         "Also produce a hiring spec covering: known interview stages at this company, " +
-        "panel structure, culture signals, and what the company weights most heavily."
+        "panel structure, culture signals, and what the company weights most heavily.",
     ),
     new HumanMessage(
       `## Target Role & Company\n${buildJobContext(match)}\n\n` +
         `## Market Requirements for this Role\n` +
-        state.marketRequirements.map((r) => `- ${r}`).join("\n")
+        state.marketRequirements.map((r) => `- ${r}`).join("\n"),
     ),
   ];
 
@@ -154,7 +157,7 @@ async function generateGeneralBank(
 
 async function generatePersonalBank(
   state: GraphStateType,
-  match: JobMatch
+  match: JobMatch,
 ): Promise<z.infer<typeof PersonalBankOutputSchema>> {
   const candidateContext = buildCandidateContext(state);
 
@@ -186,11 +189,11 @@ async function generatePersonalBank(
         "how to connect their past experience to this company's context.\n" +
         "relevantSkills: 2-4 skills being evaluated.\n\n" +
         "Available anchors for your questions:\n" +
-        githubAnchors
+        githubAnchors,
     ),
     new HumanMessage(
       `## Target Company\n${buildJobContext(match)}\n\n` +
-        `## Candidate Profile\n${candidateContext}`
+        `## Candidate Profile\n${candidateContext}`,
     ),
   ];
 
@@ -200,11 +203,11 @@ async function generatePersonalBank(
 // ─── Node ─────────────────────────────────────────────────────────────────────
 
 export async function interviewArchitectNode(
-  state: GraphStateType
+  state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   if (state.jobMatches.length === 0) {
     throw new Error(
-      "interview_architect: jobMatches is empty. Run job_hunter first."
+      "interview_architect: jobMatches is empty. Run job_hunter first.",
     );
   }
 
@@ -215,27 +218,31 @@ export async function interviewArchitectNode(
   for (const [i, match] of state.jobMatches.entries()) {
     console.log(
       `\n[interview_architect] ── Match ${i + 1}/${state.jobMatches.length}: ` +
-        `${match.title} @ ${match.company}`
+        `${match.title} @ ${match.company}`,
     );
 
     // ── Tier 1: General bank (20 Qs) + hiring spec ──────────────────────────
-    console.log(`[interview_architect]   Tier 1 — generating 20 General questions + hiring spec...`);
+    console.log(
+      `[interview_architect]   Tier 1 — generating 20 General questions + hiring spec...`,
+    );
     const generalResult = GeneralBankOutputSchema.parse(
-      await generateGeneralBank(state, match)
+      await generateGeneralBank(state, match),
     );
     console.log(
       `[interview_architect]   Tier 1 done. ` +
         `Spec length: ${generalResult.spec.length} chars. ` +
-        `Questions: ${generalResult.questions.length}`
+        `Questions: ${generalResult.questions.length}`,
     );
 
     // ── Tier 2: Personal deep-dive (10 Qs) ──────────────────────────────────
-    console.log(`[interview_architect]   Tier 2 — generating 10 Personal deep-dive questions...`);
+    console.log(
+      `[interview_architect]   Tier 2 — generating 10 Personal deep-dive questions...`,
+    );
     const personalResult = PersonalBankOutputSchema.parse(
-      await generatePersonalBank(state, match)
+      await generatePersonalBank(state, match),
     );
     console.log(
-      `[interview_architect]   Tier 2 done. Questions: ${personalResult.questions.length}`
+      `[interview_architect]   Tier 2 done. Questions: ${personalResult.questions.length}`,
     );
 
     // ── Assemble + validate the full guide ───────────────────────────────────
@@ -246,11 +253,15 @@ export async function interviewArchitectNode(
     });
 
     // Sanity checks — belt-and-braces beyond Zod
-    const generalCount = guide.questionBank.filter((q) => q.type === "General").length;
-    const personalCount = guide.questionBank.filter((q) => q.type === "Personal").length;
+    const generalCount = guide.questionBank.filter(
+      (q) => q.type === "General",
+    ).length;
+    const personalCount = guide.questionBank.filter(
+      (q) => q.type === "Personal",
+    ).length;
     console.log(
       `[interview_architect]   Guide validated: ` +
-        `${generalCount} General + ${personalCount} Personal = ${guide.questionBank.length} total`
+        `${generalCount} General + ${personalCount} Personal = ${guide.questionBank.length} total`,
     );
 
     interviewGuides.push(guide);
@@ -258,7 +269,7 @@ export async function interviewArchitectNode(
 
   console.log(
     `\n[interview_architect] Complete. ${interviewGuides.length} guides built for: ` +
-      interviewGuides.map((g) => g.company).join(", ")
+      interviewGuides.map((g) => g.company).join(", "),
   );
 
   return { interviewGuides };

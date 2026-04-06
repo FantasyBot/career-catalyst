@@ -6,7 +6,9 @@ import { z } from "zod";
 export const GithubProfileSchema = z.object({
   languages: z.array(z.string()).describe("Top programming languages used"),
   topProjects: z.array(z.string()).describe("Names of the most notable repos"),
-  summary: z.string().describe("Short narrative of the developer's GitHub presence"),
+  summary: z
+    .string()
+    .describe("Short narrative of the developer's GitHub presence"),
 });
 
 export const JobMatchSchema = z.object({
@@ -20,13 +22,15 @@ export const InterviewQuestionSchema = z.object({
   /** "General" = industry/role standard; "Personal" = grilling on the candidate's own work */
   type: z.enum(["General", "Personal"]),
 
-  question: z.string().describe("The interview question as it would be asked aloud"),
+  question: z
+    .string()
+    .describe("The interview question as it would be asked aloud"),
 
   modelAnswer: z
     .string()
     .describe(
       "A strong model answer. General questions reference industry best practices. " +
-        "Personal questions reference specific projects, code decisions, or CV achievements."
+        "Personal questions reference specific projects, code decisions, or CV achievements.",
     ),
 
   category: z.enum([
@@ -51,7 +55,7 @@ export const InterviewGuideSchema = z.object({
     .string()
     .describe(
       "Hiring spec for this company: typical interview stages, panel makeup, " +
-        "known culture signals, and what they weight most heavily."
+        "known culture signals, and what they weight most heavily.",
     ),
 
   /** Exactly 30 questions: 20 General (industry/role) + 10 Personal (CV/GitHub grilling) */
