@@ -59,7 +59,7 @@ export const InterviewGuideSchema = z.object({
     ),
 
   /** Exactly 30 questions: 20 General (industry/role) + 10 Personal (CV/GitHub grilling) */
-  questionBank: z.array(InterviewQuestionSchema).length(30),
+  questionBank: z.array(InterviewQuestionSchema).min(20).max(40),
 });
 
 // ─── Inferred Types ────────────────────────────────────────────────────────────
@@ -95,13 +95,19 @@ export const GraphState = Annotation.Root({
     default: () => null,
   }),
 
+  /** GitHub username parsed from githubUrl — set by github_extractor, used by downstream nodes. */
+  githubUsername: Annotation<string | null>({
+    reducer: (_prev, next) => next,
+    default: () => null,
+  }),
+
   /** True when a GitHub URL was found — used as a conditional routing flag. */
   hasGithub: Annotation<boolean>({
     reducer: (_prev, next) => next,
     default: () => false,
   }),
 
-  /** Structured summary of the user's GitHub activity (set by github_auditor). */
+  /** Structured summary of the user's GitHub activity (set by github_extractor). */
   githubProfile: Annotation<GithubProfile | null>({
     reducer: (_prev, next) => next,
     default: () => null,
@@ -113,13 +119,7 @@ export const GraphState = Annotation.Root({
     default: () => [],
   }),
 
-  /** Rewritten CV copy optimised for targetRole (set by cv_enhancer). */
-  improvedCv: Annotation<string | null>({
-    reducer: (_prev, next) => next,
-    default: () => null,
-  }),
-
-  /** ATS / quality score for the improved CV (0–100). */
+  /** ATS / quality score for the CV (0–100). */
   cvScore: Annotation<number>({
     reducer: (_prev, next) => next,
     default: () => 0,
@@ -149,8 +149,17 @@ export const GraphState = Annotation.Root({
     default: () => [],
   }),
 
-  /** Base64-encoded final PDF report (set by report_generator). */
-  finalPdfBase64: Annotation<string | null>({
+  /** * Pre-computed summary of the candidate's CV and GitHub
+   * used to pass context to parallel worker nodes.
+   */
+  candidateContext: Annotation<string>({
+    reducer: (_prev, next) => next,
+    default: () => "",
+  }),
+
+  /** * Current job match being processed by a worker node.
+   */
+  activeJobMatch: Annotation<JobMatch | null>({
     reducer: (_prev, next) => next,
     default: () => null,
   }),

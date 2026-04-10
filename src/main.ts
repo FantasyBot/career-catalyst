@@ -2,7 +2,7 @@
  * Career Catalyst — entry point
  *
  * Usage:
- *   npx ts-node --esm src/main.ts <cv> <target-role> [github-url]
+ *   npx tsx src/main.ts <cv> <target-role>
  *
  * <cv> can be either:
  *   • An absolute or relative path to a .pdf file
@@ -17,6 +17,8 @@
  *   Writes the final PDF to ./output/career-catalyst-<timestamp>.pdf
  *   Prints a structured summary of every pipeline stage to stdout
  */
+
+import "dotenv/config";
 
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -49,9 +51,7 @@ if (!process.env.GITHUB_TOKEN) {
 const [, , cvInput, targetRole] = process.argv;
 
 if (!cvInput || !targetRole) {
-  console.error(
-    "Usage: ts-node --esm src/main.ts <cv-path-or-text> <target-role> [github-url]\n",
-  );
+  console.error("Usage: npx tsx src/main.ts <cv-path-or-text> <target-role>\n");
   process.exit(1);
 }
 
@@ -84,16 +84,6 @@ try {
   console.error("\n  FATAL: graph execution failed.");
   console.error((err as Error).message);
   process.exit(1);
-}
-
-// ─── Save PDF ─────────────────────────────────────────────────────────────────
-
-if (result.finalPdfBase64) {
-  const outputDir = path.resolve("output");
-  await fs.mkdir(outputDir, { recursive: true });
-  const pdfPath = path.join(outputDir, `career-catalyst-${threadId}.pdf`);
-  await fs.writeFile(pdfPath, Buffer.from(result.finalPdfBase64, "base64"));
-  console.log(`\n  PDF saved → ${pdfPath}`);
 }
 
 // ─── Summary ──────────────────────────────────────────────────────────────────
@@ -137,5 +127,4 @@ if (result.interviewGuides.length > 0) {
   });
 }
 
-console.log(`  PDF generated  : ${result.finalPdfBase64 !== null}`);
 console.log("─".repeat(64) + "\n");

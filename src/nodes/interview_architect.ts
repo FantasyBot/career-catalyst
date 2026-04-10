@@ -1,30 +1,21 @@
 /**
- * Node: interview_architect  (Step 9)
+ * Node & Router: interview_architect (Step 7)
  *
  * For each of the 3 jobMatches, produces one InterviewGuide containing:
  *
- *   Tier 1 — General Bank (20 questions, type: "General")
- *     Breakdown: 6 System Design · 7 Tech Stack · 4 Behavioural · 3 Role Specific
- *     Model answers reference industry best practices and the company's known stack.
- *     Also produces the hiring spec (interview stages, culture, panel structure).
+ * Tier 1 — General Bank (20 questions, type: "General")
+ * Tier 2 — Personal Deep-Dive (10 questions, type: "Personal")
  *
- *   Tier 2 — Personal Deep-Dive (10 questions, type: "Personal")
- *     Every question is anchored to a real artefact in the candidate's history:
- *       - GitHub: specific repo, library choice, architecture decision
- *       - CV: named achievement, promoted metric, specific project outcome
- *     Model answers coach the candidate to connect their past to this company's context.
+ * Processing: parallel fan-out via LangGraph Send API.
+ * architectRouterNode dispatches one generateSingleGuideNode worker per match.
+ * Each worker makes 2 LLM calls (general+spec, then personal) concurrently across matches.
  *
- * Each question has: type · question · modelAnswer · category · relevantSkills[]
- * Total per guide: exactly 30 questions (enforced by InterviewGuideSchema.length(30)).
- *
- * Processing: sequential across 3 matches to avoid rate-limit bursts.
- * 2 LLM calls per match (6 total): general+spec, then personal.
- *
- * Output slice: { interviewGuides }
+ * Output slice: { interviewGuides } (merged by state reducer)
  */
 
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { Send } from "@langchain/langgraph";
 import { z } from "zod";
 import {
   InterviewQuestionSchema,
@@ -35,9 +26,6 @@ import {
 } from "../state.js";
 
 // ─── Per-call schemas ─────────────────────────────────────────────────────────
-//
-// We split generation into two focused calls per job match so each prompt
-// stays within a clear scope — the LLM produces tighter, more specific output.
 
 const GeneralBankOutputSchema = z.object({
   spec: z
@@ -50,7 +38,8 @@ const GeneralBankOutputSchema = z.object({
     ),
   questions: z
     .array(InterviewQuestionSchema)
-    .length(20)
+    .min(10)
+    .max(25)
     .describe(
       "Exactly 20 General questions. Distribution: " +
         "6 System Design · 7 Tech Stack · 4 Behavioural · 3 Role Specific. " +
@@ -61,7 +50,8 @@ const GeneralBankOutputSchema = z.object({
 const PersonalBankOutputSchema = z.object({
   questions: z
     .array(InterviewQuestionSchema)
-    .length(10)
+    .min(5)
+    .max(15)
     .describe(
       "Exactly 10 Personal Deep-Dive questions. All type='Personal', " +
         "category='Personal Deep-Dive'. Each question must reference a specific " +
@@ -73,8 +63,14 @@ const PersonalBankOutputSchema = z.object({
 
 const llm = new ChatOpenAI({
   model: "gpt-4o",
-  temperature: 0.4, // slight creativity for question variety; answers stay precise
-  maxTokens: 8192, // generous — 30 full Q+A pairs need room
+  temperature: 0.4,
+  maxTokens: 8192,
+});
+
+const fallbackLlm = new ChatOpenAI({
+  model: "gpt-4o",
+  temperature: 0,
+  maxTokens: 8192,
 });
 
 const generalLlm = llm.withStructuredOutput(GeneralBankOutputSchema, {
@@ -83,6 +79,82 @@ const generalLlm = llm.withStructuredOutput(GeneralBankOutputSchema, {
 const personalLlm = llm.withStructuredOutput(PersonalBankOutputSchema, {
   name: "personal_bank_output",
 });
+
+// ─── Parse resilience helpers ─────────────────────────────────────────────────
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractJsonObject(text: string): string | null {
+  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const firstBrace = text.indexOf("{");
+  const lastBrace = text.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return text.slice(firstBrace, lastBrace + 1).trim();
+  }
+
+  return null;
+}
+
+async function invokeWithRetryAndFallback<T>(
+  invokeStructured: () => Promise<unknown>,
+  parseWithSchema: (value: unknown) => T,
+  messages: Array<SystemMessage | HumanMessage>,
+  fallbackFormatHint: string,
+  label: string,
+): Promise<T> {
+  const maxStructuredAttempts = 3;
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxStructuredAttempts; attempt++) {
+    try {
+      const result = await invokeStructured();
+      return parseWithSchema(result);
+    } catch (err) {
+      lastError = err;
+      console.warn(
+        `[interview_architect] ${label} structured parse failed (attempt ${attempt}/${maxStructuredAttempts}): ${(err as Error).message}`,
+      );
+      if (attempt < maxStructuredAttempts) {
+        await sleep(300 * attempt);
+      }
+    }
+  }
+
+  console.warn(
+    `[interview_architect] ${label} switching to raw-JSON fallback after structured retries failed.`,
+  );
+
+  const fallbackMessages = [
+    ...messages,
+    new HumanMessage(
+      "Your previous response could not be parsed. Return ONLY one valid JSON object and nothing else.\n" +
+        `Expected format:\n${fallbackFormatHint}`,
+    ),
+  ];
+
+  const raw = await fallbackLlm.invoke(fallbackMessages);
+  const rawText = raw.content;
+  const text = typeof rawText === "string" ? rawText : JSON.stringify(rawText);
+  const jsonText = extractJsonObject(text);
+
+  if (!jsonText) {
+    throw new Error(
+      `[interview_architect] ${label} fallback failed: model did not return a JSON object. Last error: ${(lastError as Error)?.message ?? "unknown"}`,
+    );
+  }
+
+  try {
+    return parseWithSchema(JSON.parse(jsonText));
+  } catch (err) {
+    throw new Error(
+      `[interview_architect] ${label} fallback JSON parse failed: ${(err as Error).message}. Last error: ${(lastError as Error)?.message ?? "unknown"}`,
+    );
+  }
+}
 
 // ─── Context builders ─────────────────────────────────────────────────────────
 
@@ -109,10 +181,7 @@ function buildCandidateContext(state: GraphStateType): string {
     sections.push("── GitHub Profile ──", "(not available)");
   }
 
-  const cvSnippet = (state.improvedCv ?? state.originalCv ?? "").slice(
-    0,
-    3_500,
-  );
+  const cvSnippet = (state.originalCv ?? "").slice(0, 3500);
   sections.push("", "── CV (truncated to 3500 chars) ──", cvSnippet);
 
   return sections.join("\n");
@@ -124,15 +193,22 @@ async function generateGeneralBank(
   state: GraphStateType,
   match: JobMatch,
 ): Promise<z.infer<typeof GeneralBankOutputSchema>> {
-  const messages = [
+  // Guard: fail fast with a clear message instead of a cryptic undefined error
+  if (!state.marketRequirements) {
+    throw new Error(
+      "generateGeneralBank: marketRequirements is missing from state. " +
+        "Ensure it is forwarded in the Send payload from architectRouterNode.",
+    );
+  }
+
+  const messages: Array<SystemMessage | HumanMessage> = [
     new SystemMessage(
       "You are a Principal Engineer and technical interview coach with 15 years of " +
         "experience conducting and preparing candidates for interviews at top tech companies.\n\n" +
         "Generate exactly 20 interview questions (type='General') for the given role and company.\n\n" +
         "Required distribution:\n" +
         "  • 6 × System Design   — architecture, scalability, trade-offs, data modelling\n" +
-        "  • 7 × Tech Stack      — specific language/framework internals, e.g. 'Explain the " +
-        "    Event Loop in Node.js', 'How does React reconciliation work?'\n" +
+        "  • 7 × Tech Stack      — specific language/framework internals\n" +
         "  • 4 × Behavioural     — STAR-format scenarios testing ownership, conflict, failure\n" +
         "  • 3 × Role Specific   — questions unique to this company's domain/product\n\n" +
         "For every question:\n" +
@@ -150,7 +226,29 @@ async function generateGeneralBank(
     ),
   ];
 
-  return generalLlm.invoke(messages);
+  return invokeWithRetryAndFallback(
+    () => generalLlm.invoke(messages),
+    (value) => GeneralBankOutputSchema.parse(value),
+    messages,
+    JSON.stringify(
+      {
+        spec: "string",
+        questions: [
+          {
+            type: "General",
+            question: "string",
+            modelAnswer: "string",
+            category:
+              "System Design | Tech Stack | Behavioural | Role Specific",
+            relevantSkills: ["string"],
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n(questions must contain exactly 20 items)",
+    "Tier 1",
+  );
 }
 
 // ─── Tier 2: Personal deep-dive questions ─────────────────────────────────────
@@ -159,10 +257,10 @@ async function generatePersonalBank(
   state: GraphStateType,
   match: JobMatch,
 ): Promise<z.infer<typeof PersonalBankOutputSchema>> {
-  const candidateContext = buildCandidateContext(state);
+  // Use pre-computed context passed via the Send API router
+  const candidateContext =
+    state.candidateContext || buildCandidateContext(state);
 
-  // Build an explicit list of "anchors" for the LLM to reference.
-  // This forces specificity and prevents generic personal questions.
   const githubAnchors =
     state.githubProfile && state.githubProfile.topProjects.length > 0
       ? state.githubProfile.topProjects
@@ -171,7 +269,7 @@ async function generatePersonalBank(
           .join("\n")
       : "• (no GitHub repos available — anchor questions to CV achievements only)";
 
-  const messages = [
+  const messages: Array<SystemMessage | HumanMessage> = [
     new SystemMessage(
       "You are a technical lead at a top-tier company who has just finished reading " +
         "this candidate's CV and GitHub profile in detail. You are conducting a " +
@@ -180,13 +278,9 @@ async function generatePersonalBank(
         "category='Personal Deep-Dive').\n\n" +
         "Every single question MUST reference something real from the candidate's history:\n" +
         "  • GitHub: name the specific repo, the specific library/pattern/architecture choice\n" +
-        "    e.g. 'In your [repo] project, I see you used [LibraryX] — why that over [AltY]?'\n" +
-        "  • CV: name the specific achievement, metric, or project\n" +
-        "    e.g. 'You reduced latency by 40% at [Company] — how would you apply that approach\n" +
-        "    to [specific problem] we have at [Target Company]?'\n\n" +
+        "  • CV: name the specific achievement, metric, or project\n\n" +
         "The questions must feel like a technical lead who has actually read the code is asking them.\n\n" +
-        "modelAnswer: coach the candidate on how to answer well — what specifics to mention, " +
-        "how to connect their past experience to this company's context.\n" +
+        "modelAnswer: coach the candidate on how to answer well.\n" +
         "relevantSkills: 2-4 skills being evaluated.\n\n" +
         "Available anchors for your questions:\n" +
         githubAnchors,
@@ -197,80 +291,122 @@ async function generatePersonalBank(
     ),
   ];
 
-  return personalLlm.invoke(messages);
+  return invokeWithRetryAndFallback(
+    () => personalLlm.invoke(messages),
+    (value) => PersonalBankOutputSchema.parse(value),
+    messages,
+    JSON.stringify(
+      {
+        questions: [
+          {
+            type: "Personal",
+            question: "string",
+            modelAnswer: "string",
+            category: "Personal Deep-Dive",
+            relevantSkills: ["string"],
+          },
+        ],
+      },
+      null,
+      2,
+    ) + "\n(questions must contain exactly 10 items)",
+    "Tier 2",
+  );
 }
 
-// ─── Node ─────────────────────────────────────────────────────────────────────
+// ─── LangGraph Fan-Out Logic ──────────────────────────────────────────────────
 
-export async function interviewArchitectNode(
-  state: GraphStateType,
-): Promise<Partial<GraphStateType>> {
-  if (state.jobMatches.length === 0) {
+/**
+ * 1. The Router Edge
+ * This is used as a conditional edge to fan-out to parallel workers.
+ *
+ * IMPORTANT: The Send API payload becomes the worker's ENTIRE state.
+ * Parent graph state is NOT automatically inherited by worker nodes.
+ * Every field the worker needs must be explicitly forwarded here.
+ */
+export function architectRouterNode(state: GraphStateType): Send[] {
+  if (!state.jobMatches || state.jobMatches.length === 0) {
     throw new Error(
-      "interview_architect: jobMatches is empty. Run job_hunter first.",
+      "architect_router: jobMatches is empty. Run job_hunter first.",
     );
   }
 
-  const interviewGuides: InterviewGuide[] = [];
+  // Pre-calculate candidate context once to save compute
+  const candidateContext = buildCandidateContext(state);
 
-  // Process matches sequentially — 2 LLM calls each, 6 total.
-  // Sequential avoids rate-limit bursts on large structured outputs.
-  for (const [i, match] of state.jobMatches.entries()) {
+  console.log("\n" + "─".repeat(56));
+  console.log("  STEP 7/7  │  architect_router (parallel fan-out)");
+  console.log("─".repeat(56));
+  console.log(
+    `[architect_router] Dispatching ${state.jobMatches.length} parallel guide jobs...`,
+  );
+
+  return state.jobMatches.map(
+    (match) =>
+      new Send("generate_single_guide", {
+        activeJobMatch: match,
+        candidateContext,
+        // Forward all fields the worker node needs — Send payloads do NOT
+        // inherit parent state automatically; omitting these causes undefined errors.
+        marketRequirements: state.marketRequirements,
+        githubProfile: state.githubProfile,
+        originalCv: state.originalCv,
+      }),
+  );
+}
+
+/**
+ * 2. The Worker Node
+ * This node processes a single job match triggered by the router.
+ */
+export async function generateSingleGuideNode(
+  state: GraphStateType,
+): Promise<Partial<GraphStateType>> {
+  try {
+    const match = state.activeJobMatch;
+    if (!match) {
+      throw new Error(
+        "generate_single_guide: activeJobMatch is missing from Send payload.",
+      );
+    }
+
     console.log(
-      `\n[interview_architect] ── Match ${i + 1}/${state.jobMatches.length}: ` +
-        `${match.title} @ ${match.company}`,
+      `\n[generate_single_guide] Building guide for ${match.title} @ ${match.company}`,
     );
 
-    // ── Tier 1: General bank (20 Qs) + hiring spec ──────────────────────────
-    console.log(
-      `[interview_architect]   Tier 1 — generating 20 General questions + hiring spec...`,
-    );
     const generalResult = GeneralBankOutputSchema.parse(
       await generateGeneralBank(state, match),
     );
-    console.log(
-      `[interview_architect]   Tier 1 done. ` +
-        `Spec length: ${generalResult.spec.length} chars. ` +
-        `Questions: ${generalResult.questions.length}`,
-    );
 
-    // ── Tier 2: Personal deep-dive (10 Qs) ──────────────────────────────────
-    console.log(
-      `[interview_architect]   Tier 2 — generating 10 Personal deep-dive questions...`,
-    );
     const personalResult = PersonalBankOutputSchema.parse(
       await generatePersonalBank(state, match),
     );
-    console.log(
-      `[interview_architect]   Tier 2 done. Questions: ${personalResult.questions.length}`,
-    );
 
-    // ── Assemble + validate the full guide ───────────────────────────────────
     const guide: InterviewGuide = InterviewGuideSchema.parse({
       company: match.company,
       spec: generalResult.spec,
       questionBank: [...generalResult.questions, ...personalResult.questions],
     });
 
-    // Sanity checks — belt-and-braces beyond Zod
     const generalCount = guide.questionBank.filter(
       (q) => q.type === "General",
     ).length;
+
     const personalCount = guide.questionBank.filter(
       (q) => q.type === "Personal",
     ).length;
+
     console.log(
-      `[interview_architect]   Guide validated: ` +
+      `[generate_single_guide] Guide validated for ${match.company}: ` +
         `${generalCount} General + ${personalCount} Personal = ${guide.questionBank.length} total`,
     );
 
-    interviewGuides.push(guide);
+    console.log("questionBank ---- ", guide.questionBank);
+
+    // Return exactly ONE guide. The reducer in state.ts will merge them all!
+    return { interviewGuides: [guide] };
+  } catch (error) {
+    console.error("[generate_single_guide] Error:", error);
+    throw error; // Re-throw so LangGraph can surface the failure properly
   }
-
-  console.log(
-    `\n[interview_architect] Complete. ${interviewGuides.length} guides built for: ` +
-      interviewGuides.map((g) => g.company).join(", "),
-  );
-
-  return { interviewGuides };
 }

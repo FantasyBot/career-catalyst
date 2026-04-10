@@ -1,12 +1,12 @@
 /**
- * Node: skill_gap_analyser  (Step 6 — "Gap Detector")
+ * Node: skill_gap_analyser  (Step 5 — "Gap Detector")
  *
  * Only reached when cvScore < 90 (enforced by the conditional edge in graph.ts).
  *
  * Two-phase pipeline:
  *
  *   Phase 1 — Gap Detection
- *     Compares marketRequirements against improvedCv (the rewritten CV).
+ *     Compares marketRequirements against Cv
  *     Classifies each missing item as a "Hard" skill (technical) or
  *     "Soft" skill (behavioural/process). Merges both into skillGaps[].
  *
@@ -108,7 +108,7 @@ function buildRoadmapPromptContext(
 // ─── Phase 1: Gap Detection ────────────────────────────────────────────────────
 
 async function detectGaps(state: GraphStateType) {
-  const cvText = state.improvedCv ?? state.originalCv;
+  const cvText = state.originalCv;
 
   const messages = [
     new SystemMessage(
@@ -168,16 +168,20 @@ async function generateRoadmap(
 export async function skillGapAnalyserNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
+  console.log("\n" + "─".repeat(56));
+  console.log("  STEP 5/7  │  skill_gap_analyser");
+  console.log("─".repeat(56));
+
   if (state.marketRequirements.length === 0) {
     throw new Error(
       "skill_gap_analyser: marketRequirements is empty. Run market_scout first.",
     );
   }
 
-  const cvText = state.improvedCv ?? state.originalCv;
+  const cvText = state.originalCv;
   if (!cvText) {
     throw new Error(
-      "skill_gap_analyser: no CV text available. Run pdf_parser and cv_enhancer first.",
+      "skill_gap_analyser: no CV text available. Run pdf_parser first.",
     );
   }
 
@@ -217,6 +221,8 @@ export async function skillGapAnalyserNode(
   console.log(
     `[skill_gap_analyser] Roadmap generated. Length: ${learningRoadmap.length} chars.`,
   );
+
+  console.log("-----learningRoadmap-----", learningRoadmap);
 
   return { skillGaps, learningRoadmap };
 }

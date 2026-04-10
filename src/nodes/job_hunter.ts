@@ -1,8 +1,8 @@
 /**
- * Node: job_hunter  (Step 7 — "Job Matcher")
+ * Node: job_hunter  (Step 6 — "Job Matcher")
  *
  * Searches for 3 real, active job openings matching the user's targetRole
- * and improved CV. Uses the Tavily REST API directly so the `days: 30` filter
+ * and CV. Uses the Tavily REST API directly so the `days: 30` filter
  * is applied server-side — the LangChain wrapper does not expose this param.
  *
  * Pipeline:
@@ -156,18 +156,20 @@ async function extractJobMatches(
 export async function jobHunterNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
-  const { targetRole, improvedCv, originalCv, marketRequirements } = state;
+  console.log("\n" + "─".repeat(56));
+  console.log("  STEP 6/7  │  job_hunter");
+  console.log("─".repeat(56));
+
+  const { targetRole, originalCv, marketRequirements } = state;
 
   if (!targetRole) {
     throw new Error("job_hunter: state.targetRole is empty.");
   }
 
-  const cvText = improvedCv ?? originalCv;
-  // Summarise the candidate's skills for the LLM prompt (first 800 chars is enough)
   const cvSkillsSummary =
     marketRequirements.length > 0
       ? marketRequirements.slice(0, 15).join(", ")
-      : cvText.slice(0, 800);
+      : originalCv.slice(0, 800);
 
   const queries = buildQueries(targetRole);
   console.log(

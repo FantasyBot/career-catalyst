@@ -29,7 +29,8 @@ const MarketScoutOutputSchema = z.object({
     .array(
       z
         .string()
-        .min(2)
+        .trim()
+        .min(1)
         .max(80)
         .describe(
           "A single skill, tool, technology, or competency — concise label only",
@@ -75,7 +76,10 @@ interface TavilyResponse {
   error?: string;
 }
 
-async function tavilySearch(query: string, maxResults = 5): Promise<TavilyResult[]> {
+async function tavilySearch(
+  query: string,
+  maxResults = 5,
+): Promise<TavilyResult[]> {
   const apiKey = process.env.TAVILY_API_KEY;
   if (!apiKey) throw new Error("TAVILY_API_KEY is not set.");
 
@@ -124,6 +128,10 @@ function aggregateSnippets(
 export async function marketScoutNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
+  console.log("\n" + "─".repeat(56));
+  console.log("  STEP 3/7  │  market_scout");
+  console.log("─".repeat(56));
+
   const { targetRole } = state;
 
   if (!targetRole) {

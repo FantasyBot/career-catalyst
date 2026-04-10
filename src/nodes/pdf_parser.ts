@@ -14,7 +14,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
-import pdfParse from "pdf-parse";
+import pdfParse from "pdf-parse/lib/pdf-parse.js";
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
 
@@ -41,10 +41,55 @@ function looksLikeFilePath(value: string): boolean {
   );
 }
 
+/**
+ * Custom page renderer passed to pdf-parse.
+ *
+ * Extracts both visible text AND hyperlink annotations from each page.
+ * This handles CVs where links like "GitHub" are clickable but the URL
+ * is stored only as a PDF annotation — invisible in the raw text stream.
+ * Extracted URLs are appended to the page text so link_extractor can find them.
+ */
+async function renderPageWithLinks(pageData: {
+  getTextContent: (
+    opts: object,
+  ) => Promise<{ items: Array<{ str: string; transform: number[] }> }>;
+  getAnnotations: () => Promise<
+    Array<{ annotationType: number; url?: string }>
+  >;
+}): Promise<string> {
+  const textContent = await pageData.getTextContent({
+    normalizeWhitespace: false,
+    disableCombineTextItems: false,
+  });
+
+  let lastY: number | undefined;
+  let text = "";
+  for (const item of textContent.items) {
+    if (lastY === item.transform[5] || !lastY) {
+      text += item.str;
+    } else {
+      text += "\n" + item.str;
+    }
+    lastY = item.transform[5];
+  }
+
+  // annotationType === 2 is a Link annotation in the PDF spec
+  const annotations = await pageData.getAnnotations();
+  const urls = annotations
+    .filter((ann) => ann.annotationType === 2 && ann.url)
+    .map((ann) => ann.url as string);
+
+  if (urls.length > 0) {
+    text += "\n" + urls.join("\n");
+  }
+
+  return text;
+}
+
 async function parsePdf(filePath: string): Promise<string> {
   const absolutePath = path.resolve(filePath.trim());
   const buffer = await fs.readFile(absolutePath);
-  const result = await pdfParse(buffer);
+  const result = await pdfParse(buffer, { pagerender: renderPageWithLinks });
   const text = result.text.trim();
   if (!text) {
     throw new Error(`pdf-parse returned empty text for: ${absolutePath}`);
@@ -64,6 +109,10 @@ function normaliseWhitespace(text: string): string {
 export async function pdfParserNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
+  console.log("\n" + "─".repeat(56));
+  console.log("  STEP 1/7  │  pdf_parser");
+  console.log("─".repeat(56));
+
   const { originalCv } = state;
 
   if (!originalCv) {
