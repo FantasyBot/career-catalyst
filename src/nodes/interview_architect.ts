@@ -24,6 +24,7 @@ import {
   type JobMatch,
   type GraphStateType,
 } from "../state.js";
+import fs from "fs";
 
 // ─── Per-call schemas ─────────────────────────────────────────────────────────
 
@@ -38,7 +39,7 @@ const GeneralBankOutputSchema = z.object({
     ),
   questions: z
     .array(InterviewQuestionSchema)
-    .min(10)
+    .min(15)
     .max(25)
     .describe(
       "Exactly 20 General questions. Distribution: " +
@@ -68,7 +69,7 @@ const llm = new ChatOpenAI({
 });
 
 const fallbackLlm = new ChatOpenAI({
-  model: "gpt-4o",
+  model: "gpt-4o-mini",
   temperature: 0,
   maxTokens: 8192,
 });
@@ -106,52 +107,70 @@ async function invokeWithRetryAndFallback<T>(
   fallbackFormatHint: string,
   label: string,
 ): Promise<T> {
-  const maxStructuredAttempts = 3;
+  const MAX_ATTEMPTS = 3;
+  const BASE_DELAY_MS = 300;
+
   let lastError: unknown = null;
 
-  for (let attempt = 1; attempt <= maxStructuredAttempts; attempt++) {
+  // ─── 1. Structured attempts ────────────────────────────────────────────────
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const result = await invokeStructured();
       return parseWithSchema(result);
     } catch (err) {
       lastError = err;
+
       console.warn(
-        `[interview_architect] ${label} structured parse failed (attempt ${attempt}/${maxStructuredAttempts}): ${(err as Error).message}`,
+        `[interview_architect] ${label} structured parse failed ` +
+          `(attempt ${attempt}/${MAX_ATTEMPTS}): ${(err as Error).message}`,
       );
-      if (attempt < maxStructuredAttempts) {
-        await sleep(300 * attempt);
+
+      if (attempt < MAX_ATTEMPTS) {
+        const delay = BASE_DELAY_MS * attempt;
+        await sleep(delay);
       }
     }
   }
 
+  // ─── 2. Fallback to raw JSON mode ──────────────────────────────────────────
   console.warn(
-    `[interview_architect] ${label} switching to raw-JSON fallback after structured retries failed.`,
+    `[interview_architect] ${label} switching to raw JSON fallback after ${MAX_ATTEMPTS} failed attempts.`,
   );
 
   const fallbackMessages = [
     ...messages,
     new HumanMessage(
-      "Your previous response could not be parsed. Return ONLY one valid JSON object and nothing else.\n" +
+      "Your previous response could not be parsed.\n\n" +
+        "Return ONLY one valid JSON object.\n" +
+        "Do NOT include explanations, markdown, or text outside JSON.\n\n" +
         `Expected format:\n${fallbackFormatHint}`,
     ),
   ];
 
   const raw = await fallbackLlm.invoke(fallbackMessages);
-  const rawText = raw.content;
-  const text = typeof rawText === "string" ? rawText : JSON.stringify(rawText);
-  const jsonText = extractJsonObject(text);
+
+  const rawText =
+    typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
+
+  const jsonText = extractJsonObject(rawText);
 
   if (!jsonText) {
     throw new Error(
-      `[interview_architect] ${label} fallback failed: model did not return a JSON object. Last error: ${(lastError as Error)?.message ?? "unknown"}`,
+      `[interview_architect] ${label} fallback failed: no JSON object found.\n` +
+        `Last structured error: ${(lastError as Error)?.message ?? "unknown"}\n` +
+        `Raw output:\n${rawText.slice(0, 500)}...`,
     );
   }
 
+  // ─── 3. Final parse attempt ────────────────────────────────────────────────
   try {
-    return parseWithSchema(JSON.parse(jsonText));
+    const parsed = JSON.parse(jsonText);
+    return parseWithSchema(parsed);
   } catch (err) {
     throw new Error(
-      `[interview_architect] ${label} fallback JSON parse failed: ${(err as Error).message}. Last error: ${(lastError as Error)?.message ?? "unknown"}`,
+      `[interview_architect] ${label} fallback JSON parse failed: ${(err as Error).message}\n` +
+        `Last structured error: ${(lastError as Error)?.message ?? "unknown"}\n` +
+        `Extracted JSON:\n${jsonText.slice(0, 500)}...`,
     );
   }
 }
@@ -226,7 +245,7 @@ async function generateGeneralBank(
     ),
   ];
 
-  return invokeWithRetryAndFallback(
+  const result = await invokeWithRetryAndFallback(
     () => generalLlm.invoke(messages),
     (value) => GeneralBankOutputSchema.parse(value),
     messages,
@@ -249,6 +268,8 @@ async function generateGeneralBank(
     ) + "\n(questions must contain exactly 20 items)",
     "Tier 1",
   );
+
+  return result;
 }
 
 // ─── Tier 2: Personal deep-dive questions ─────────────────────────────────────
@@ -291,7 +312,7 @@ async function generatePersonalBank(
     ),
   ];
 
-  return invokeWithRetryAndFallback(
+  const result = await invokeWithRetryAndFallback(
     () => personalLlm.invoke(messages),
     (value) => PersonalBankOutputSchema.parse(value),
     messages,
@@ -312,6 +333,8 @@ async function generatePersonalBank(
     ) + "\n(questions must contain exactly 10 items)",
     "Tier 2",
   );
+
+  return result;
 }
 
 // ─── LangGraph Fan-Out Logic ──────────────────────────────────────────────────
@@ -374,13 +397,10 @@ export async function generateSingleGuideNode(
       `\n[generate_single_guide] Building guide for ${match.title} @ ${match.company}`,
     );
 
-    const generalResult = GeneralBankOutputSchema.parse(
-      await generateGeneralBank(state, match),
-    );
-
-    const personalResult = PersonalBankOutputSchema.parse(
-      await generatePersonalBank(state, match),
-    );
+    const [generalResult, personalResult] = await Promise.all([
+      generateGeneralBank(state, match),
+      generatePersonalBank(state, match),
+    ]);
 
     const guide: InterviewGuide = InterviewGuideSchema.parse({
       company: match.company,
@@ -401,7 +421,12 @@ export async function generateSingleGuideNode(
         `${generalCount} General + ${personalCount} Personal = ${guide.questionBank.length} total`,
     );
 
-    console.log("questionBank ---- ", guide.questionBank);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const companyName = guide?.company;
+    const filename = `${companyName}_${timestamp}.json`;
+
+    fs.writeFileSync(filename, JSON.stringify(guide, null, 2));
+    console.log(`Saved → ${filename}`);
 
     // Return exactly ONE guide. The reducer in state.ts will merge them all!
     return { interviewGuides: [guide] };

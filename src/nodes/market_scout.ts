@@ -37,7 +37,7 @@ const MarketScoutOutputSchema = z.object({
         ),
     )
     .min(10)
-    .max(40)
+    .max(50)
     .describe(
       "Deduplicated, ranked list of skills/tools the market expects for this role",
     ),
