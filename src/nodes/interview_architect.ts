@@ -17,14 +17,17 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { Send } from "@langchain/langgraph";
 import { z } from "zod";
+import fs from "fs";
+import path from "path";
 import {
   InterviewQuestionSchema,
   InterviewGuideSchema,
   type InterviewGuide,
   type JobMatch,
+  type GithubProfile,
   type GraphStateType,
 } from "../state.js";
-import fs from "fs";
+import { invokeWithRetryAndFallback } from "../utils/retry.js";
 
 // ─── Per-call schemas ─────────────────────────────────────────────────────────
 
@@ -68,12 +71,6 @@ const llm = new ChatOpenAI({
   maxTokens: 8192,
 });
 
-const fallbackLlm = new ChatOpenAI({
-  model: "gpt-4o-mini",
-  temperature: 0,
-  maxTokens: 8192,
-});
-
 const generalLlm = llm.withStructuredOutput(GeneralBankOutputSchema, {
   name: "general_bank_output",
 });
@@ -81,97 +78,31 @@ const personalLlm = llm.withStructuredOutput(PersonalBankOutputSchema, {
   name: "personal_bank_output",
 });
 
-// ─── Parse resilience helpers ─────────────────────────────────────────────────
+// ─── Type-safe Send API payload ───────────────────────────────────────────────
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Explicit contract for the payload forwarded from architectRouterNode to each
+ * generateSingleGuideNode worker via the LangGraph Send API.
+ *
+ * The Send API does NOT automatically inherit parent graph state — every field
+ * the worker needs must be listed here. TypeScript enforces completeness at the
+ * call site in architectRouterNode, preventing silent undefined errors downstream.
+ */
+interface GuideWorkerPayload {
+  activeJobMatch: JobMatch;
+  candidateContext: string;
+  marketRequirements: string[];
+  githubProfile: GithubProfile | null;
+  originalCv: string;
 }
 
-function extractJsonObject(text: string): string | null {
-  const fenced = text.match(/```json\s*([\s\S]*?)\s*```/i);
-  if (fenced?.[1]) return fenced[1].trim();
+// ─── Output directory ─────────────────────────────────────────────────────────
 
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return text.slice(firstBrace, lastBrace + 1).trim();
-  }
+const OUTPUT_DIR = path.resolve("output");
 
-  return null;
-}
-
-async function invokeWithRetryAndFallback<T>(
-  invokeStructured: () => Promise<unknown>,
-  parseWithSchema: (value: unknown) => T,
-  messages: Array<SystemMessage | HumanMessage>,
-  fallbackFormatHint: string,
-  label: string,
-): Promise<T> {
-  const MAX_ATTEMPTS = 3;
-  const BASE_DELAY_MS = 300;
-
-  let lastError: unknown = null;
-
-  // ─── 1. Structured attempts ────────────────────────────────────────────────
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    try {
-      const result = await invokeStructured();
-      return parseWithSchema(result);
-    } catch (err) {
-      lastError = err;
-
-      console.warn(
-        `[interview_architect] ${label} structured parse failed ` +
-          `(attempt ${attempt}/${MAX_ATTEMPTS}): ${(err as Error).message}`,
-      );
-
-      if (attempt < MAX_ATTEMPTS) {
-        const delay = BASE_DELAY_MS * attempt;
-        await sleep(delay);
-      }
-    }
-  }
-
-  // ─── 2. Fallback to raw JSON mode ──────────────────────────────────────────
-  console.warn(
-    `[interview_architect] ${label} switching to raw JSON fallback after ${MAX_ATTEMPTS} failed attempts.`,
-  );
-
-  const fallbackMessages = [
-    ...messages,
-    new HumanMessage(
-      "Your previous response could not be parsed.\n\n" +
-        "Return ONLY one valid JSON object.\n" +
-        "Do NOT include explanations, markdown, or text outside JSON.\n\n" +
-        `Expected format:\n${fallbackFormatHint}`,
-    ),
-  ];
-
-  const raw = await fallbackLlm.invoke(fallbackMessages);
-
-  const rawText =
-    typeof raw.content === "string" ? raw.content : JSON.stringify(raw.content);
-
-  const jsonText = extractJsonObject(rawText);
-
-  if (!jsonText) {
-    throw new Error(
-      `[interview_architect] ${label} fallback failed: no JSON object found.\n` +
-        `Last structured error: ${(lastError as Error)?.message ?? "unknown"}\n` +
-        `Raw output:\n${rawText.slice(0, 500)}...`,
-    );
-  }
-
-  // ─── 3. Final parse attempt ────────────────────────────────────────────────
-  try {
-    const parsed = JSON.parse(jsonText);
-    return parseWithSchema(parsed);
-  } catch (err) {
-    throw new Error(
-      `[interview_architect] ${label} fallback JSON parse failed: ${(err as Error).message}\n` +
-        `Last structured error: ${(lastError as Error)?.message ?? "unknown"}\n` +
-        `Extracted JSON:\n${jsonText.slice(0, 500)}...`,
-    );
+function ensureOutputDir(): void {
+  if (!fs.existsSync(OUTPUT_DIR)) {
+    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   }
 }
 
@@ -212,7 +143,6 @@ async function generateGeneralBank(
   state: GraphStateType,
   match: JobMatch,
 ): Promise<z.infer<typeof GeneralBankOutputSchema>> {
-  // Guard: fail fast with a clear message instead of a cryptic undefined error
   if (!state.marketRequirements) {
     throw new Error(
       "generateGeneralBank: marketRequirements is missing from state. " +
@@ -245,7 +175,7 @@ async function generateGeneralBank(
     ),
   ];
 
-  const result = await invokeWithRetryAndFallback(
+  return invokeWithRetryAndFallback(
     () => generalLlm.invoke(messages),
     (value) => GeneralBankOutputSchema.parse(value),
     messages,
@@ -266,10 +196,8 @@ async function generateGeneralBank(
       null,
       2,
     ) + "\n(questions must contain exactly 20 items)",
-    "Tier 1",
+    { label: `Tier 1 — ${match.company}` },
   );
-
-  return result;
 }
 
 // ─── Tier 2: Personal deep-dive questions ─────────────────────────────────────
@@ -278,7 +206,6 @@ async function generatePersonalBank(
   state: GraphStateType,
   match: JobMatch,
 ): Promise<z.infer<typeof PersonalBankOutputSchema>> {
-  // Use pre-computed context passed via the Send API router
   const candidateContext =
     state.candidateContext || buildCandidateContext(state);
 
@@ -312,7 +239,7 @@ async function generatePersonalBank(
     ),
   ];
 
-  const result = await invokeWithRetryAndFallback(
+  return invokeWithRetryAndFallback(
     () => personalLlm.invoke(messages),
     (value) => PersonalBankOutputSchema.parse(value),
     messages,
@@ -331,10 +258,8 @@ async function generatePersonalBank(
       null,
       2,
     ) + "\n(questions must contain exactly 10 items)",
-    "Tier 2",
+    { label: `Tier 2 — ${match.company}` },
   );
-
-  return result;
 }
 
 // ─── LangGraph Fan-Out Logic ──────────────────────────────────────────────────
@@ -345,7 +270,8 @@ async function generatePersonalBank(
  *
  * IMPORTANT: The Send API payload becomes the worker's ENTIRE state.
  * Parent graph state is NOT automatically inherited by worker nodes.
- * Every field the worker needs must be explicitly forwarded here.
+ * Every field the worker needs must be explicitly listed in GuideWorkerPayload
+ * above — TypeScript will error here if any required field is missing.
  */
 export function architectRouterNode(state: GraphStateType): Send[] {
   if (!state.jobMatches || state.jobMatches.length === 0) {
@@ -354,7 +280,6 @@ export function architectRouterNode(state: GraphStateType): Send[] {
     );
   }
 
-  // Pre-calculate candidate context once to save compute
   const candidateContext = buildCandidateContext(state);
 
   console.log("\n" + "─".repeat(56));
@@ -364,18 +289,17 @@ export function architectRouterNode(state: GraphStateType): Send[] {
     `[architect_router] Dispatching ${state.jobMatches.length} parallel guide jobs...`,
   );
 
-  return state.jobMatches.map(
-    (match) =>
-      new Send("generate_single_guide", {
-        activeJobMatch: match,
-        candidateContext,
-        // Forward all fields the worker node needs — Send payloads do NOT
-        // inherit parent state automatically; omitting these causes undefined errors.
-        marketRequirements: state.marketRequirements,
-        githubProfile: state.githubProfile,
-        originalCv: state.originalCv,
-      }),
-  );
+  return state.jobMatches.map((match) => {
+    // Typed intermediate — TypeScript enforces all required fields are present.
+    const payload: GuideWorkerPayload = {
+      activeJobMatch: match,
+      candidateContext,
+      marketRequirements: state.marketRequirements,
+      githubProfile: state.githubProfile,
+      originalCv: state.originalCv,
+    };
+    return new Send("generate_single_guide", payload);
+  });
 }
 
 /**
@@ -411,7 +335,6 @@ export async function generateSingleGuideNode(
     const generalCount = guide.questionBank.filter(
       (q) => q.type === "General",
     ).length;
-
     const personalCount = guide.questionBank.filter(
       (q) => q.type === "Personal",
     ).length;
@@ -421,17 +344,17 @@ export async function generateSingleGuideNode(
         `${generalCount} General + ${personalCount} Personal = ${guide.questionBank.length} total`,
     );
 
+    // Write to ./output/<Company>_<timestamp>.json (directory is auto-created)
+    ensureOutputDir();
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const companyName = guide?.company;
-    const filename = `${companyName}_${timestamp}.json`;
-
+    const safeCompany = guide.company.replace(/[^A-Za-z0-9_-]/g, "_");
+    const filename = path.join(OUTPUT_DIR, `${safeCompany}_${timestamp}.json`);
     fs.writeFileSync(filename, JSON.stringify(guide, null, 2));
-    console.log(`Saved → ${filename}`);
+    console.log(`[generate_single_guide] Saved → ${filename}`);
 
-    // Return exactly ONE guide. The reducer in state.ts will merge them all!
     return { interviewGuides: [guide] };
   } catch (error) {
     console.error("[generate_single_guide] Error:", error);
-    throw error; // Re-throw so LangGraph can surface the failure properly
+    throw error;
   }
 }

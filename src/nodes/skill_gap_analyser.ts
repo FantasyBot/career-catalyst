@@ -222,7 +222,5 @@ export async function skillGapAnalyserNode(
     `[skill_gap_analyser] Roadmap generated. Length: ${learningRoadmap.length} chars.`,
   );
 
-  console.log("-----learningRoadmap-----", learningRoadmap);
-
   return { skillGaps, learningRoadmap };
 }

@@ -14,7 +14,7 @@
  *   GITHUB_TOKEN        — (optional) raises GitHub API rate limit from 60 → 5000 req/hr
  *
  * Output:
- *   Writes the final PDF to ./output/career-catalyst-<timestamp>.pdf
+ *   Writes one JSON guide per job match to ./output/<Company>_<timestamp>.json
  *   Prints a structured summary of every pipeline stage to stdout
  */
 
@@ -93,7 +93,8 @@ console.log("  Pipeline Summary");
 console.log("─".repeat(64));
 
 console.log(`  CV score       : ${result.cvScore}/100`);
-console.log(`  Has GitHub     : ${result.hasGithub}`);
+console.log(`  GitHub URL     : ${result.githubUrlFound ? result.githubUrl : "not found"}`);
+console.log(`  GitHub profile : ${result.hasGithub ? "fetched" : result.githubUrlFound ? "fetch failed" : "not found"}`);
 
 if (result.githubProfile) {
   console.log(

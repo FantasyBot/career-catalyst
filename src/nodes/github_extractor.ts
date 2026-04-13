@@ -145,6 +145,7 @@ export async function githubExtractorNode(
     return {
       githubUrl: null,
       githubUsername: null,
+      githubUrlFound: false,
       hasGithub: false,
       githubProfile: null,
     };
@@ -165,6 +166,7 @@ export async function githubExtractorNode(
     return {
       githubUrl: extracted.url,
       githubUsername: extracted.username,
+      githubUrlFound: true,
       hasGithub: true,
       githubProfile,
     };
@@ -187,6 +189,7 @@ export async function githubExtractorNode(
     return {
       githubUrl: extracted.url,
       githubUsername: extracted.username,
+      githubUrlFound: true,  // URL was found — fetch just failed
       hasGithub: false,
       githubProfile: null,
     };

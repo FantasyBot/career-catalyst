@@ -101,7 +101,15 @@ export const GraphState = Annotation.Root({
     default: () => null,
   }),
 
-  /** True when a GitHub URL was found — used as a conditional routing flag. */
+  /** True when a GitHub URL was found in the CV text. Set by github_extractor
+   *  regardless of whether the profile fetch succeeded. */
+  githubUrlFound: Annotation<boolean>({
+    reducer: (_prev, next) => next,
+    default: () => false,
+  }),
+
+  /** True when the GitHub profile was successfully fetched and parsed.
+   *  False when the URL was found but the API call failed (rate limit, 404, etc.). */
   hasGithub: Annotation<boolean>({
     reducer: (_prev, next) => next,
     default: () => false,
