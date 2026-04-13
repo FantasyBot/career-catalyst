@@ -83,7 +83,8 @@ Career Catalyst runs a 7-step AI pipeline that takes your CV and a target job ro
                       │
 ┌─────────────────────▼───────────────────────────────────────┐
 │                       OUTPUT                                 │
-│   ./output/<Company>_<timestamp>.json  (one file per job)   │
+│   ./output/<sessionId>/learning_roadmap.md  (if gaps found) │
+│   ./output/<sessionId>/<Company>.json       (one per job)   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -171,47 +172,176 @@ npx tsx src/main.ts /Users/you/Documents/cv.pdf "Staff Software Engineer"
 npx tsx src/main.ts "John Doe — 5 years experience in TypeScript, Node.js..." "Backend Engineer"
 ```
 
+### Full Example Run
+
+```
+$ npx tsx src/main.ts ./cv.pdf "AI engineer"
+
+════════════════════════════════════════════════════════════════
+  Career Catalyst
+════════════════════════════════════════════════════════════════
+  Session : cc-1776092227780
+  Output  : /path/to/career-catalyst/output/cc-1776092227780
+  Role    : AI engineer
+  CV      : ./cv.pdf
+════════════════════════════════════════════════════════════════
+
+────────────────────────────────────────────────────────
+  STEP 1/7  │  pdf_parser
+────────────────────────────────────────────────────────
+[pdf_parser] Reading PDF from: ./cv.pdf
+[pdf_parser] Extracted 2750 characters from PDF.
+
+────────────────────────────────────────────────────────
+  STEP 2/7  │  github_extractor
+────────────────────────────────────────────────────────
+[github_extractor] Found: https://github.com/FantasyBot → username: FantasyBot
+[github_extractor] Profile fetched. Languages: TypeScript, HCL, Python, CSS, JavaScript, HTML
+                   Projects: idea-validator, DailyBrief, terra_infrastructure_app, terra_client_app, terra_server_app
+
+────────────────────────────────────────────────────────
+  STEP 3/7  │  market_scout
+────────────────────────────────────────────────────────
+[market_scout] Running 3 Tavily searches for: "AI engineer"
+  [1] essential skills and technologies for AI engineer 2026
+  [2] AI engineer interview requirements and hiring criteria 2026
+  [3] top frameworks tools and libraries AI engineer companies expect 2026
+[market_scout] "AI engineer interview requirements and hiring criteria 2026" → 5 results
+[market_scout] "essential skills and technologies for AI engineer 2026" → 5 results
+[market_scout] "top frameworks tools and libraries AI engineer companies expect 2026" → 5 results
+[market_scout] Aggregated 1567 words — sending to LLM for extraction.
+[market_scout] Validated 23 market requirements. Top 5: Machine Learning, Data Analysis,
+               Prompt Engineering, AI Workflow Automation, AI Agents
+
+────────────────────────────────────────────────────────
+  STEP 4/7  │  cv_analyzer
+────────────────────────────────────────────────────────
+[cv_analyzer] Scoring CV against market requirements...
+[cv_analyzer] Score: 40/100
+[cv_analyzer] Score 40 < 90 — routing to learning phase.
+
+────────────────────────────────────────────────────────
+  STEP 5/7  │  skill_gap_analyser
+────────────────────────────────────────────────────────
+[skill_gap_analyser] Phase 1 — detecting skill gaps...
+[skill_gap_analyser] Found 23 hard gaps, 0 soft gaps.
+[skill_gap_analyser] Gaps: Machine Learning, Data Analysis, Prompt Engineering, AI Workflow
+                           Automation, AI Agents, TensorFlow, LangChain, LlamaIndex,
+                           AWS SageMaker, Hugging Face, Streamlit, AI System Design Patterns,
+                           LLM Frameworks, AI Orchestration, Semantic Kernel, AutoGen ...
+[skill_gap_analyser] Phase 2 — generating learning roadmap for 23 gaps...
+[skill_gap_analyser] Roadmap generated. Length: 2732 chars.
+[skill_gap_analyser] Saved → /path/to/output/cc-1776092227780/learning_roadmap.md
+
+────────────────────────────────────────────────────────
+  STEP 6/7  │  job_hunter
+────────────────────────────────────────────────────────
+[job_hunter] Running 3 Tavily searches (days=30) for: "AI engineer"
+[job_hunter] ""AI engineer" job opening hiring now 2026" → 5 results
+[job_hunter] "AI engineer position available apply site:linkedin.com OR ..." → 5 results
+[job_hunter] "AI engineer new job posting apply now 2026" → 5 results
+[job_hunter] 15 raw results aggregated — extracting 3 matches via LLM.
+[job_hunter] Validated 3 job matches:
+  • Senior AI Engineer @ Remote People
+  • AI Engineer (Contract) @ 10a Labs
+  • AI Engineer @ Agency Within
+
+────────────────────────────────────────────────────────
+  STEP 7/7  │  architect_router (parallel fan-out)
+────────────────────────────────────────────────────────
+[architect_router] Dispatching 3 parallel guide jobs...
+[generate_single_guide] Guide validated for Remote People: 20 General + 10 Personal = 30 total
+[generate_single_guide] Saved → /path/to/output/cc-1776092227780/Remote_People.json
+[generate_single_guide] Guide validated for 10a Labs: 19 General + 10 Personal = 29 total
+[generate_single_guide] Saved → /path/to/output/cc-1776092227780/10a_Labs.json
+[generate_single_guide] Guide validated for Agency Within: 19 General + 10 Personal = 29 total
+[generate_single_guide] Saved → /path/to/output/cc-1776092227780/Agency_Within.json
+
+────────────────────────────────────────────────────────────────
+  Pipeline Summary
+────────────────────────────────────────────────────────────────
+  CV score       : 40/100
+  GitHub URL     : https://github.com/FantasyBot
+  GitHub profile : fetched
+  GitHub langs   : TypeScript, HCL, Python, CSS, JavaScript
+  GitHub repos   : idea-validator, DailyBrief, terra_infrastructure_app
+  Market reqs    : 23 items
+  Skill gaps     : 23 identified
+  Roadmap        : /path/to/output/cc-1776092227780/learning_roadmap.md
+  Job matches    : 3
+    1. Senior AI Engineer @ Remote People
+       https://job-boards.eu.greenhouse.io/remotepeople/jobs/4721961101
+    2. AI Engineer (Contract) @ 10a Labs
+       http://job-boards.greenhouse.io/10alabs/jobs/4136404009
+    3. AI Engineer @ Agency Within
+       http://job-boards.greenhouse.io/agencywithin/jobs/5056863007
+  Interview guides: 3
+    • Remote People: 20 General + 10 Personal questions
+    • 10a Labs: 19 General + 10 Personal questions
+    • Agency Within: 19 General + 10 Personal questions
+────────────────────────────────────────────────────────────────
+```
+
 ---
 
 ## Output
 
 ### Console Summary
 
-At the end of the run, a summary is printed to stdout:
+At the end of the run, a summary is printed to stdout covering CV score, GitHub status, market requirements count, skill gaps, learning roadmap, job matches with URLs, and interview guide breakdown per company (see the full example run above).
+
+### Session Folders
+
+Every run gets its own folder under `./output/`, named after the session ID shown in the console header. All files for that run are grouped inside it — nothing is scattered or overwritten across sessions.
 
 ```
-────────────────────────────────────────────────────────────────
-  Pipeline Summary
-────────────────────────────────────────────────────────────────
-  CV score       : 72/100
-  GitHub URL     : https://github.com/johndoe
-  GitHub profile : fetched
-  Market reqs    : 34 items
-  Skill gaps     : 8 identified
-  Has roadmap    : true
-  Job matches    : 3
-    1. Senior Backend Engineer @ Stripe
-       https://stripe.com/jobs/...
-    2. Backend Engineer @ Linear
-       https://linear.app/jobs/...
-    3. Software Engineer @ Vercel
-       https://vercel.com/careers/...
-  Interview guides: 3
-    • Stripe: 20 General + 10 Personal questions
-    • Linear: 20 General + 10 Personal questions
-    • Vercel: 20 General + 10 Personal questions
-────────────────────────────────────────────────────────────────
+output/
+├── cc-1776092227780/              ← first run  (role: AI Engineer)
+│   ├── learning_roadmap.md
+│   ├── Remote_People.json
+│   ├── 10a_Labs.json
+│   └── Agency_Within.json
+└── cc-1776094112539/              ← second run (role: Senior Backend Engineer)
+    ├── Stripe.json
+    ├── Linear.json
+    └── Vercel.json
+```
+
+The session ID (`cc-<timestamp>`) matches the `Session :` line printed at the top of every run, making it easy to correlate console output with files on disk.
+
+### Learning Roadmap
+
+When the CV score is below 90, a Markdown learning roadmap is saved to the session folder:
+
+```
+output/cc-1776092227780/learning_roadmap.md
+```
+
+Example content:
+
+```markdown
+# Learning Roadmap — AI Engineer
+
+## 1. [Critical] Machine Learning Fundamentals
+**Why it matters:** Core ML knowledge is screened at every AI engineering interview stage.
+
+**Resources:**
+- [fast.ai Practical Deep Learning](https://course.fast.ai/) — course
+- [Hands-On Machine Learning (Géron)](https://www.oreilly.com/library/view/hands-on-machine-learning/9781098125967/) — book
+
+## 2. [Critical] LLM Fundamentals & Prompt Engineering
+...
 ```
 
 ### JSON Interview Guides
 
-One JSON file is written to `./output/` per job match:
+One JSON file is written per job match inside the session folder:
 
 ```
-output/
-├── Stripe_2026-04-13T10-30-00-000Z.json
-├── Linear_2026-04-13T10-30-01-000Z.json
-└── Vercel_2026-04-13T10-30-02-000Z.json
+output/cc-1776092227780/
+├── Remote_People.json
+├── 10a_Labs.json
+└── Agency_Within.json
 ```
 
 Each file has the following structure:
@@ -313,6 +443,7 @@ Identifies missing skills and builds a learning plan.
 - Selects 3–5 highest-impact gaps
 - For each, assigns a priority (Critical / High / Medium) and recommends 1–3 real resources (official docs, courses, books)
 - Output is clean Markdown, actionable within 4–12 weeks
+- Saves roadmap directly to `output/<sessionId>/learning_roadmap.md`
 
 ### Step 6 — `job_hunter`
 
@@ -357,7 +488,7 @@ career-catalyst/
 │   │   └── interview_architect.ts # Step 7 — Parallel interview guide generation
 │   └── utils/
 │       └── retry.ts               # Shared LLM retry + fallback utility
-├── output/                        # Generated interview guides (auto-created)
+├── output/                        # Per-session output folders (auto-created)
 ├── .env                           # Your API keys (not committed)
 ├── .env.example                   # Template for .env
 ├── package.json
@@ -448,4 +579,4 @@ npm install
 
 ### Output files not appearing
 
-The `./output/` directory is created automatically on the first run. Files are written to `output/<Company>_<timestamp>.json` relative to the directory you run the command from. Ensure you have write permissions in the project root.
+A session folder `output/<sessionId>/` is created automatically before the graph runs. All files for that session are written inside it. Ensure you have write permissions in the project root. The full output path is printed in the console header (`Output  :`) at the start of every run.

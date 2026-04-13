@@ -94,16 +94,7 @@ interface GuideWorkerPayload {
   marketRequirements: string[];
   githubProfile: GithubProfile | null;
   originalCv: string;
-}
-
-// ─── Output directory ─────────────────────────────────────────────────────────
-
-const OUTPUT_DIR = path.resolve("output");
-
-function ensureOutputDir(): void {
-  if (!fs.existsSync(OUTPUT_DIR)) {
-    fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  }
+  sessionId: string;
 }
 
 // ─── Context builders ─────────────────────────────────────────────────────────
@@ -297,6 +288,7 @@ export function architectRouterNode(state: GraphStateType): Send[] {
       marketRequirements: state.marketRequirements,
       githubProfile: state.githubProfile,
       originalCv: state.originalCv,
+      sessionId: state.sessionId,
     };
     return new Send("generate_single_guide", payload);
   });
@@ -344,11 +336,18 @@ export async function generateSingleGuideNode(
         `${generalCount} General + ${personalCount} Personal = ${guide.questionBank.length} total`,
     );
 
-    // Write to ./output/<Company>_<timestamp>.json (directory is auto-created)
-    ensureOutputDir();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const sessionDir = path.resolve("output", state.sessionId);
     const safeCompany = guide.company.replace(/[^A-Za-z0-9_-]/g, "_");
-    const filename = path.join(OUTPUT_DIR, `${safeCompany}_${timestamp}.json`);
+
+    // Guard against filename collisions if two jobs share the same company name.
+    // Appends _2, _3, etc. rather than silently overwriting an existing file.
+    let filename = path.join(sessionDir, `${safeCompany}.json`);
+    let suffix = 2;
+    while (fs.existsSync(filename)) {
+      filename = path.join(sessionDir, `${safeCompany}_${suffix}.json`);
+      suffix++;
+    }
+
     fs.writeFileSync(filename, JSON.stringify(guide, null, 2));
     console.log(`[generate_single_guide] Saved → ${filename}`);
 

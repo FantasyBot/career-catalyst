@@ -76,6 +76,14 @@ export type InterviewGuide = z.infer<typeof InterviewGuideSchema>;
 // Nullable fields default to null; primitives default to empty/zero values.
 
 export const GraphState = Annotation.Root({
+  /** Unique session identifier (set by main.ts to the thread ID).
+   *  Used by nodes to write output files into a per-session folder:
+   *  output/<sessionId>/learning_roadmap.md, output/<sessionId>/<Company>.json */
+  sessionId: Annotation<string>({
+    reducer: (_prev, next) => next,
+    default: () => "",
+  }),
+
   /** Raw text of the CV (populated by pdf_parser). Seed with a file path to a PDF
    *  or with pre-extracted plain text; the pdf_parser node handles both. */
   originalCv: Annotation<string>({
@@ -151,9 +159,11 @@ export const GraphState = Annotation.Root({
     default: () => [],
   }),
 
-  /** One interview guide per job match (set by interview_architect). */
+  /** One interview guide per job match (set by interview_architect).
+   *  Uses an accumulating reducer so parallel worker results are merged,
+   *  not overwritten — each worker returns [guide] and they stack up. */
   interviewGuides: Annotation<InterviewGuide[]>({
-    reducer: (_prev, next) => next,
+    reducer: (prev, next) => [...prev, ...next],
     default: () => [],
   }),
 

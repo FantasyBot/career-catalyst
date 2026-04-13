@@ -13,8 +13,9 @@
  *   TAVILY_API_KEY      — Tavily search API key
  *   GITHUB_TOKEN        — (optional) raises GitHub API rate limit from 60 → 5000 req/hr
  *
- * Output:
- *   Writes one JSON guide per job match to ./output/<Company>_<timestamp>.json
+ * Output (one folder per session):
+ *   ./output/<sessionId>/learning_roadmap.md  — skill gap learning plan (when cvScore < 90)
+ *   ./output/<sessionId>/<Company>.json       — interview guide per job match
  *   Prints a structured summary of every pipeline stage to stdout
  */
 
@@ -58,11 +59,16 @@ if (!cvInput || !targetRole) {
 // ─── Run ──────────────────────────────────────────────────────────────────────
 
 const threadId = `cc-${Date.now()}`;
+const sessionDir = path.resolve("output", threadId);
 
+// Create the session folder before the graph starts so parallel workers
+// can write into it without racing to create it themselves.
+await fs.mkdir(sessionDir, { recursive: true });
 console.log("\n" + "═".repeat(64));
 console.log("  Career Catalyst");
 console.log("═".repeat(64));
-console.log(`  Thread  : ${threadId}`);
+console.log(`  Session : ${threadId}`);
+console.log(`  Output  : ${sessionDir}`);
 console.log(`  Role    : ${targetRole}`);
 console.log(
   `  CV      : ${cvInput.length > 60 ? cvInput.slice(0, 57) + "..." : cvInput}`,
@@ -70,6 +76,7 @@ console.log(
 console.log("═".repeat(64) + "\n");
 
 const initialState: Partial<GraphStateType> = {
+  sessionId: threadId,
   originalCv: cvInput,
   targetRole,
 };
@@ -93,8 +100,12 @@ console.log("  Pipeline Summary");
 console.log("─".repeat(64));
 
 console.log(`  CV score       : ${result.cvScore}/100`);
-console.log(`  GitHub URL     : ${result.githubUrlFound ? result.githubUrl : "not found"}`);
-console.log(`  GitHub profile : ${result.hasGithub ? "fetched" : result.githubUrlFound ? "fetch failed" : "not found"}`);
+console.log(
+  `  GitHub URL     : ${result.githubUrlFound ? result.githubUrl : "not found"}`,
+);
+console.log(
+  `  GitHub profile : ${result.hasGithub ? "fetched" : result.githubUrlFound ? "fetch failed" : "not found"}`,
+);
 
 if (result.githubProfile) {
   console.log(
@@ -107,7 +118,13 @@ if (result.githubProfile) {
 
 console.log(`  Market reqs    : ${result.marketRequirements.length} items`);
 console.log(`  Skill gaps     : ${result.skillGaps.length} identified`);
-console.log(`  Has roadmap    : ${result.learningRoadmap !== null}`);
+if (result.learningRoadmap) {
+  console.log(
+    `  Roadmap        : ${path.join(sessionDir, "learning_roadmap.md")}`,
+  );
+} else {
+  console.log(`  Roadmap        : none (CV score >= 90, no gaps found)`);
+}
 console.log(`  Job matches    : ${result.jobMatches.length}`);
 
 if (result.jobMatches.length > 0) {

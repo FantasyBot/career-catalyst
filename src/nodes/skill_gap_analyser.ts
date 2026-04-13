@@ -18,6 +18,8 @@
  * Output slice: { skillGaps, learningRoadmap }
  */
 
+import fs from "fs";
+import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
@@ -221,6 +223,10 @@ export async function skillGapAnalyserNode(
   console.log(
     `[skill_gap_analyser] Roadmap generated. Length: ${learningRoadmap.length} chars.`,
   );
+
+  const roadmapPath = path.resolve("output", state.sessionId, "learning_roadmap.md");
+  fs.writeFileSync(roadmapPath, learningRoadmap, "utf-8");
+  console.log(`[skill_gap_analyser] Saved → ${roadmapPath}`);
 
   return { skillGaps, learningRoadmap };
 }
