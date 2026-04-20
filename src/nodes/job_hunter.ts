@@ -20,6 +20,7 @@ import {
   type JobMatch,
   type GraphStateType,
 } from "../state.js";
+import { tavilySearch, type TavilyResult } from "../utils/tavily.js";
 
 // ─── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -33,53 +34,6 @@ const JobHunterOutputSchema = z.object({
         "to an actual posting — no fabricated links.",
     ),
 });
-
-// ─── Tavily direct API ────────────────────────────────────────────────────────
-
-interface TavilyRawResult {
-  title?: string;
-  url?: string;
-  content?: string;
-  score?: number;
-}
-
-interface TavilyResponse {
-  results?: TavilyRawResult[];
-  error?: string;
-}
-
-async function tavilySearch(
-  query: string,
-  days: number = 30,
-  maxResults: number = 5,
-): Promise<TavilyRawResult[]> {
-  const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) throw new Error("TAVILY_API_KEY is not set.");
-
-  const res = await fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query,
-      max_results: maxResults,
-      days, // filter to last N days — server-side
-      include_answer: false,
-      include_raw_content: false,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Tavily API error ${res.status}: ${text}`);
-  }
-
-  const data = (await res.json()) as TavilyResponse;
-
-  if (data.error) throw new Error(`Tavily error: ${data.error}`);
-
-  return data.results ?? [];
-}
 
 // ─── Query builder ─────────────────────────────────────────────────────────────
 
@@ -101,7 +55,7 @@ function buildQueries(targetRole: string): string[] {
 // ─── Result formatter ──────────────────────────────────────────────────────────
 
 function formatResultsForLlm(
-  queryResults: Array<{ query: string; results: TavilyRawResult[] }>,
+  queryResults: Array<{ query: string; results: TavilyResult[] }>,
 ): string {
   return queryResults
     .map(({ query, results }) => {
@@ -180,14 +134,14 @@ export async function jobHunterNode(
   const queryResults = await Promise.all(
     queries.map(async (query) => {
       try {
-        const results = await tavilySearch(query, 30, 5);
+        const results = await tavilySearch(query, 5, 30);
         console.log(`[job_hunter] "${query}" → ${results.length} results`);
         return { query, results };
       } catch (err) {
         console.warn(
           `[job_hunter] Search failed for "${query}": ${(err as Error).message}`,
         );
-        return { query, results: [] as TavilyRawResult[] };
+        return { query, results: [] as TavilyResult[] };
       }
     }),
   );

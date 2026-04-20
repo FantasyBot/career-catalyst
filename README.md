@@ -2,7 +2,7 @@
 
 An AI-powered career transformation agent that analyses your CV, identifies skill gaps, finds live job matches, and generates personalised interview preparation guides — all in a single command.
 
-Built with **LangGraph.js**, **OpenAI GPT-4o**, **Tavily**, and the **GitHub API**.
+Built with **LangGraph.js**, **OpenAI GPT-4o**, **Tavily**, the **GitHub API**, and **LangSmith** for observability.
 
 ---
 
@@ -16,6 +16,7 @@ Built with **LangGraph.js**, **OpenAI GPT-4o**, **Tavily**, and the **GitHub API
 - [Usage](#usage)
 - [Output](#output)
 - [Pipeline Stages](#pipeline-stages)
+- [Observability (LangSmith)](#observability-langsmith)
 - [Project Structure](#project-structure)
 - [Tech Stack](#tech-stack)
 - [Troubleshooting](#troubleshooting)
@@ -98,6 +99,7 @@ Career Catalyst runs a 7-step AI pipeline that takes your CV and a target job ro
   - [OpenAI](https://platform.openai.com/api-keys) — uses `gpt-4o` and `gpt-4o-mini`
   - [Tavily](https://app.tavily.com) — web search for market research and job hunting
   - [GitHub](https://github.com/settings/tokens) — optional, but strongly recommended
+  - [LangSmith](https://smith.langchain.com) — optional, for tracing and observability
 
 ---
 
@@ -125,9 +127,15 @@ cp .env.example .env
 Edit `.env`:
 
 ```env
-OPENAI_API_KEY=sk-proj-...    # Required — OpenAI API key
-TAVILY_API_KEY=tvly-...       # Required — Tavily search API key
-GITHUB_TOKEN=ghp_...          # Optional but strongly recommended
+OPENAI_API_KEY=sk-proj-...                                   # Required — OpenAI API key
+TAVILY_API_KEY=tvly-...                                      # Required — Tavily search API key
+GITHUB_TOKEN=ghp_...                                         # Optional but strongly recommended
+
+# Optional — LangSmith tracing (see "Observability" section below)
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com        # Use https://api.smith.langchain.com for US workspaces
+LANGSMITH_API_KEY=lsv2_pt_...
+LANGSMITH_PROJECT=career-catalyst
 ```
 
 ### API Key Details
@@ -137,6 +145,10 @@ GITHUB_TOKEN=ghp_...          # Optional but strongly recommended
 | `OPENAI_API_KEY` | Yes | Powers all LLM calls (CV scoring, gap analysis, question generation) |
 | `TAVILY_API_KEY` | Yes | Web search for market requirements and live job listings |
 | `GITHUB_TOKEN` | No | Raises GitHub API rate limit from 60 → 5,000 req/hr. Without it, GitHub profile fetching may fail on the first run. No special scopes required. |
+| `LANGSMITH_TRACING` | No | Set to `true` to enable LangSmith tracing of the entire pipeline |
+| `LANGSMITH_ENDPOINT` | No | Region-specific API endpoint. Required for EU workspaces (`https://eu.api.smith.langchain.com`) |
+| `LANGSMITH_API_KEY` | No | LangSmith API key. Personal Access Tokens (`lsv2_pt_...`) are recommended for local dev |
+| `LANGSMITH_PROJECT` | No | Project name under which traces are grouped. Defaults to `default` if unset |
 
 > **Note:** Ensure there are no leading or trailing spaces around your API key values in `.env`. Dotenv does not strip trailing whitespace from values, which will cause silent authentication failures.
 
@@ -470,6 +482,47 @@ Each question includes a model answer and a list of relevant skills being assess
 
 ---
 
+## Observability (LangSmith)
+
+Career Catalyst integrates with [LangSmith](https://smith.langchain.com) for end-to-end pipeline tracing. Every node, LLM call, Tavily search, and GitHub API request appears as a span under a single root run, with inputs, outputs, latency, and token counts.
+
+### Enabling Tracing
+
+1. Create a LangSmith account at [smith.langchain.com](https://smith.langchain.com)
+2. Go to **Settings → API Keys → Create API Key → Personal Access Token**
+3. Note the region shown at the top of the LangSmith UI (US or EU)
+4. Add the following to `.env`:
+
+```env
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com   # US: https://api.smith.langchain.com
+LANGSMITH_API_KEY=lsv2_pt_...
+LANGSMITH_PROJECT=career-catalyst
+```
+
+5. Run the pipeline — traces appear under **Projects → career-catalyst** in the LangSmith UI
+
+### What Gets Traced
+
+| Layer | Instrumentation |
+|-------|----------------|
+| Graph execution | Auto-traced by LangGraph — one root run per `graph.invoke` |
+| LLM calls (`ChatOpenAI`) | Auto-traced — prompts, completions, tokens, latency |
+| Tavily searches | Manually wrapped with `traceable` (`src/utils/tavily.ts`) |
+| GitHub API calls | Manually wrapped with `traceable` (`src/nodes/github_extractor.ts`) |
+
+Each run is tagged with `cli` and `career-catalyst`, and carries metadata `{ sessionId, targetRole }` for filtering in the UI.
+
+### Disabling Tracing
+
+Simply omit `LANGSMITH_TRACING` (or set it to `false`) in `.env`. All `traceable` wrappers become zero-cost pass-throughs when tracing is disabled.
+
+### Privacy Note
+
+When tracing is enabled, the CV text and all generated outputs (market requirements, skill gaps, interview questions) are uploaded to LangSmith as trace inputs and outputs. Disable tracing or self-host LangSmith if this is a concern.
+
+---
+
 ## Project Structure
 
 ```
@@ -487,7 +540,8 @@ career-catalyst/
 │   │   ├── job_hunter.ts          # Step 6 — Live job search via Tavily
 │   │   └── interview_architect.ts # Step 7 — Parallel interview guide generation
 │   └── utils/
-│       └── retry.ts               # Shared LLM retry + fallback utility
+│       ├── retry.ts               # Shared LLM retry + fallback utility
+│       └── tavily.ts              # Shared traceable Tavily search client
 ├── output/                        # Per-session output folders (auto-created)
 ├── .env                           # Your API keys (not committed)
 ├── .env.example                   # Template for .env
@@ -509,6 +563,7 @@ career-catalyst/
 | [Octokit](https://github.com/octokit/rest.js) | 21.x | GitHub REST API client |
 | [Zod](https://zod.dev) | 3.x | Runtime schema validation for all LLM outputs |
 | [pdf-parse](https://www.npmjs.com/package/pdf-parse) | 1.1.1 | PDF text extraction with hyperlink annotation support |
+| [LangSmith](https://smith.langchain.com) | 0.5.x | Optional observability — pipeline tracing, LLM introspection, cost tracking |
 | [TypeScript](https://www.typescriptlang.org) | 5.5 | Strict typing across the entire codebase |
 | [tsx](https://github.com/privatenumber/tsx) | 4.x | TypeScript execution without a build step |
 
@@ -574,6 +629,30 @@ This should not occur in normal operation. If it does, it indicates a LangGraph 
 ```bash
 npm install
 ```
+
+---
+
+### `Failed to send multipart request. Received status [403]: Forbidden` (LangSmith)
+
+Your `LANGSMITH_ENDPOINT` does not match the region of your LangSmith workspace. EU-region accounts must explicitly set:
+
+```env
+LANGSMITH_ENDPOINT=https://eu.api.smith.langchain.com
+```
+
+The default is the US endpoint (`https://api.smith.langchain.com`). Sending an EU-scoped key to the US endpoint (or vice-versa) always returns 403.
+
+---
+
+### LangSmith traces not appearing in the UI
+
+Check in order:
+
+1. `LANGSMITH_TRACING=true` is set in `.env` (lowercase `true`, no quotes)
+2. `LANGSMITH_API_KEY` is set to a valid key from the correct workspace
+3. `LANGSMITH_ENDPOINT` matches your workspace region (US or EU)
+4. The project name in `LANGSMITH_PROJECT` matches — or check the `default` project if unset
+5. Wait ~10 seconds after the run completes — trace batches are flushed asynchronously (the CLI already awaits this before exit)
 
 ---
 

@@ -21,6 +21,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { z } from "zod";
 import type { GraphStateType } from "../state.js";
+import { tavilySearch, type TavilyResult } from "../utils/tavily.js";
 
 // ─── Output schema ─────────────────────────────────────────────────────────────
 
@@ -63,46 +64,6 @@ function buildQueries(targetRole: string): string[] {
     `${targetRole} interview requirements and hiring criteria ${year}`,
     `top frameworks tools and libraries ${targetRole} companies expect ${year}`,
   ];
-}
-
-interface TavilyResult {
-  title?: string;
-  content?: string;
-  url?: string;
-}
-
-interface TavilyResponse {
-  results?: TavilyResult[];
-  error?: string;
-}
-
-async function tavilySearch(
-  query: string,
-  maxResults = 5,
-): Promise<TavilyResult[]> {
-  const apiKey = process.env.TAVILY_API_KEY;
-  if (!apiKey) throw new Error("TAVILY_API_KEY is not set.");
-
-  const res = await fetch("https://api.tavily.com/search", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      api_key: apiKey,
-      query,
-      max_results: maxResults,
-      include_answer: false,
-      include_raw_content: false,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Tavily API error ${res.status}: ${text}`);
-  }
-
-  const data = (await res.json()) as TavilyResponse;
-  if (data.error) throw new Error(`Tavily error: ${data.error}`);
-  return data.results ?? [];
 }
 
 /** Concatenate all result snippets into a single context block for the LLM. */

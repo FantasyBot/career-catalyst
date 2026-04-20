@@ -23,6 +23,7 @@ import "dotenv/config";
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { awaitAllCallbacks } from "@langchain/core/callbacks/promises";
 import { graph } from "./graph.js";
 import type { GraphStateType } from "./state.js";
 
@@ -44,6 +45,16 @@ if (!process.env.GITHUB_TOKEN) {
   console.warn(
     "  WARN: GITHUB_TOKEN not set — GitHub API rate limit is 60 req/hr. " +
       "Set it to raise the limit to 5000 req/hr.\n",
+  );
+}
+
+const tracingEnabled =
+  process.env.LANGSMITH_TRACING === "true" ||
+  process.env.LANGCHAIN_TRACING_V2 === "true";
+const tracingKey = process.env.LANGSMITH_API_KEY ?? process.env.LANGCHAIN_API_KEY;
+if (tracingEnabled && !tracingKey) {
+  console.warn(
+    "  WARN: LangSmith tracing is enabled but no API key is set — tracing will fail.\n",
   );
 }
 
@@ -86,10 +97,14 @@ let result: GraphStateType;
 try {
   result = await graph.invoke(initialState, {
     configurable: { thread_id: threadId },
+    runName: `career-catalyst / ${targetRole}`,
+    metadata: { sessionId: threadId, targetRole },
+    tags: ["cli", "career-catalyst"],
   });
 } catch (err) {
   console.error("\n  FATAL: graph execution failed.");
   console.error((err as Error).message);
+  await awaitAllCallbacks();
   process.exit(1);
 }
 
@@ -146,3 +161,6 @@ if (result.interviewGuides.length > 0) {
 }
 
 console.log("─".repeat(64) + "\n");
+
+// Flush any pending LangSmith traces before the process exits.
+await awaitAllCallbacks();

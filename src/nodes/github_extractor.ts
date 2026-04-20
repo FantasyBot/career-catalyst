@@ -15,6 +15,7 @@
 import { Octokit } from "@octokit/rest";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { traceable } from "langsmith/traceable";
 import { z } from "zod";
 import {
   GithubProfileSchema,
@@ -49,6 +50,34 @@ function extractFromText(
   return { url: `https://github.com/${match[1]}`, username: match[1] };
 }
 
+// ─── GitHub API (traceable) ───────────────────────────────────────────────────
+
+const listUserRepos = traceable(
+  async (octokit: Octokit, username: string) => {
+    const { data } = await octokit.rest.repos.listForUser({
+      username,
+      sort: "pushed",
+      direction: "desc",
+      per_page: 5,
+      type: "owner",
+    });
+    return data;
+  },
+  { name: "github_list_repos", run_type: "tool" },
+);
+
+const listRepoLanguages = traceable(
+  async (
+    octokit: Octokit,
+    owner: string,
+    repo: string,
+  ): Promise<Record<string, number>> => {
+    const { data } = await octokit.rest.repos.listLanguages({ owner, repo });
+    return data as Record<string, number>;
+  },
+  { name: "github_list_languages", run_type: "tool" },
+);
+
 // ─── GitHub profile fetch ─────────────────────────────────────────────────────
 
 function rankLanguages(maps: Record<string, number>[]): string[] {
@@ -67,24 +96,14 @@ function rankLanguages(maps: Record<string, number>[]): string[] {
 async function fetchGithubProfile(username: string): Promise<GithubProfile> {
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
 
-  const { data: repos } = await octokit.rest.repos.listForUser({
-    username,
-    sort: "pushed",
-    direction: "desc",
-    per_page: 5,
-    type: "owner",
-  });
+  const repos = await listUserRepos(octokit, username);
 
   if (repos.length === 0) throw new Error(`No public repos for: ${username}`);
 
   const languageMaps = await Promise.all(
     repos.map(async (repo) => {
       try {
-        const { data } = await octokit.rest.repos.listLanguages({
-          owner: username,
-          repo: repo.name,
-        });
-        return data as Record<string, number>;
+        return await listRepoLanguages(octokit, username, repo.name);
       } catch {
         return {} as Record<string, number>;
       }
